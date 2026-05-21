@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+body {
+
+  margin: 0;
+
+  padding: 0;
+
+  min-height: 100vh;
+
+  background:
+
+    linear-gradient(
+      135deg,
+      #f8fafc 0%,
+      #eef2ff 50%,
+      #f1f5f9 100%
+    );
+
+  font-family:
+    Inter,
+    Arial,
+    Helvetica,
+    sans-serif;
+
+  color: #111827;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glass-card {
+
+  background:
+    rgba(255, 255, 255, 0.6);
+
+  backdrop-filter:
+    blur(18px);
+
+  -webkit-backdrop-filter:
+    blur(18px);
+
+  border:
+    1px solid
+    rgba(255, 255, 255, 0.4);
+
+  box-shadow:
+    0 8px 32px
+    rgba(15, 23, 42, 0.08);
+}
+
+.upload-grid {
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      auto-fit,
+      minmax(320px, 1fr)
+    );
+
+  gap: 24px;
+}
+
+.soft-button {
+
+  transition:
+    all 0.25s ease;
+}
+
+.soft-button:hover {
+
+  transform:
+    translateY(-2px);
+
+  box-shadow:
+    0 10px 24px
+    rgba(59, 130, 246, 0.18);
+}
