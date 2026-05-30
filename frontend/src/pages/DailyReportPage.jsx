@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import { API_BASE } from "../api.js";
@@ -10,9 +10,11 @@ function todayYmd() {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
+const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL"];
+
 export default function DailyReportPage() {
   const [dailyReportDate, setDailyReportDate] = useState(todayYmd);
-  const [dailyReportPlatform, setDailyReportPlatform] = useState("");
+  const [dailyReportPlatform, setDailyReportPlatform] = useState("All");
   const [dailyReportRows, setDailyReportRows] = useState([]);
   const [dailyReportLoading, setDailyReportLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -38,6 +40,59 @@ export default function DailyReportPage() {
     loadDailyReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const marketplaceRows = useMemo(
+    () => dailyReportRows.filter((row) => row.platform !== "All"),
+    [dailyReportRows],
+  );
+
+  const sizeColumns = useMemo(() => {
+    const sizes = new Set();
+
+    for (const row of marketplaceRows) {
+      const size = String(row.size || "").toUpperCase().trim();
+      if (size) sizes.add(size);
+    }
+
+    return [
+      ...SIZE_ORDER.filter((size) => sizes.has(size)),
+      ...[...sizes].filter((size) => !SIZE_ORDER.includes(size)).sort(),
+    ];
+  }, [marketplaceRows]);
+
+  const styleSummaryRows = useMemo(() => {
+    const grouped = new Map();
+
+    for (const row of marketplaceRows) {
+      const platform = row.platform || "";
+      const style = row.style || "";
+      const color = row.color || "";
+      const size = String(row.size || "").toUpperCase().trim();
+      const key = `${platform}\u0000${style}\u0000${color}`;
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          date: row.date,
+          platform,
+          style,
+          color,
+          sizes: {},
+          total: 0,
+        });
+      }
+
+      const item = grouped.get(key);
+      const qty = Number(row.total_order_qty || 0);
+      item.sizes[size] = (item.sizes[size] || 0) + qty;
+      item.total += qty;
+    }
+
+    return [...grouped.values()].sort((a, b) =>
+      a.platform.localeCompare(b.platform) ||
+      a.style.localeCompare(b.style) ||
+      a.color.localeCompare(b.color),
+    );
+  }, [marketplaceRows]);
 
   const downloadReport = async () => {
     setActionLoading(true);
@@ -71,9 +126,9 @@ export default function DailyReportPage() {
   };
 
   const printReport = () => {
-    printDailyReportRows(dailyReportRows, {
+    printDailyReportRows(marketplaceRows, {
       date: dailyReportDate,
-      platform: dailyReportPlatform || "All",
+      platform: dailyReportPlatform,
       title: "Daily Final Order Details",
     });
   };
@@ -84,7 +139,9 @@ export default function DailyReportPage() {
       return;
     }
 
-    const platLabel = dailyReportPlatform || "all platforms for this date";
+    const platLabel = dailyReportPlatform === "All"
+      ? "all marketplace platforms for this date"
+      : dailyReportPlatform;
     const ok = window.confirm(
       `Delete daily report for ${dailyReportDate} (${platLabel})? This cannot be undone.`,
     );
@@ -132,8 +189,7 @@ export default function DailyReportPage() {
 
       <div className="max-w-7xl mx-auto p-6">
         <p className="text-slate-500 text-sm mb-6">
-          Rows saved when you generate the final report. Filter by date and
-          platform, then refresh the table.
+          detailed daily report of final order quantities by style, color, and size for each marketplace platform.
         </p>
 
         <div className="flex flex-wrap gap-3 items-end mb-6">
@@ -153,8 +209,7 @@ export default function DailyReportPage() {
               onChange={(e) => setDailyReportPlatform(e.target.value)}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 min-w-[180px]"
             >
-              <option value="">All (any platform)</option>
-              <option value="All">All (combined)</option>
+              <option value="All">All platforms</option>
               <option value="Flipkart">Flipkart</option>
               <option value="Amazon">Amazon</option>
               <option value="Ajio">Ajio</option>
@@ -173,7 +228,7 @@ export default function DailyReportPage() {
           <button
             type="button"
             onClick={downloadReport}
-            disabled={actionLoading || dailyReportRows.length === 0}
+            disabled={actionLoading || styleSummaryRows.length === 0}
             title="Download CSV"
             className="p-2.5 rounded-xl bg-white border border-slate-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-40 transition"
           >
@@ -182,7 +237,7 @@ export default function DailyReportPage() {
           <button
             type="button"
             onClick={printReport}
-            disabled={dailyReportRows.length === 0}
+            disabled={marketplaceRows.length === 0}
             title="Print table"
             className="p-2.5 rounded-xl bg-white border border-slate-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-40 transition"
           >
@@ -201,22 +256,26 @@ export default function DailyReportPage() {
 
         <div className="rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm overflow-hidden">
           <div className="max-h-[calc(100vh-16rem)] overflow-auto">
-            <table className="w-full text-sm text-left min-w-[640px]">
+            <table className="w-full text-sm text-left min-w-[760px]">
               <thead className="sticky top-0 bg-slate-100/95 text-slate-700 text-xs uppercase tracking-wide z-10">
                 <tr>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Platform</th>
                   <th className="px-4 py-3">Style</th>
                   <th className="px-4 py-3">Color</th>
-                  <th className="px-4 py-3">Size</th>
-                  <th className="px-4 py-3 text-right">Total order qty</th>
+                  {sizeColumns.map((size) => (
+                    <th key={size} className="px-4 py-3 text-right">
+                      {size}
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {dailyReportRows.length === 0 ? (
+                {styleSummaryRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={5 + sizeColumns.length}
                       className="px-4 py-16 text-center text-slate-500"
                     >
                       No rows for this filter. Generate a report for this date
@@ -224,9 +283,9 @@ export default function DailyReportPage() {
                     </td>
                   </tr>
                 ) : (
-                  dailyReportRows.map((r, i) => (
+                  styleSummaryRows.map((r, i) => (
                     <tr
-                      key={`${r.date}-${r.platform}-${r.style}-${r.color}-${r.size}-${i}`}
+                      key={`${r.date}-${r.platform}-${r.style}-${r.color}-${i}`}
                       className="border-t border-slate-100 hover:bg-slate-50/80"
                     >
                       <td className="px-4 py-2.5 whitespace-nowrap">{r.date}</td>
@@ -243,18 +302,26 @@ export default function DailyReportPage() {
                       >
                         {r.color}
                       </td>
-                      <td className="px-4 py-2.5">{r.size}</td>
-                      <td className="px-4 py-2.5 text-right font-medium tabular-nums">
-                        {r.total_order_qty}
+                      {sizeColumns.map((size) => (
+                        <td
+                          key={size}
+                          className="px-4 py-2.5 text-right tabular-nums"
+                        >
+                          {r.sizes[size] ? r.sizes[size] : "-"}
+                        </td>
+                      ))}
+                      <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
+                        {r.total}
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
-          </div>
+        </div>
           <div className="border-t border-slate-200/80 px-4 py-2 text-xs text-slate-500 bg-white/60">
-            {dailyReportRows.length} row{dailyReportRows.length === 1 ? "" : "s"}
+            {styleSummaryRows.length} style summary row
+            {styleSummaryRows.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>

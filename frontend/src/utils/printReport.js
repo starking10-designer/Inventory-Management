@@ -156,11 +156,18 @@ export function printDailyReportRows(rows, meta = {}) {
 
 export function buildMarketplaceFormData(files) {
   const formData = new FormData();
-  if (files.flipkart) formData.append("flipkart_file", files.flipkart);
-  if (files.amazon) formData.append("amazon_file", files.amazon);
-  if (files.ajio) formData.append("ajio_file", files.ajio);
-  if (files.meesho) formData.append("meesho_file", files.meesho);
-  if (files.myntra) formData.append("myntra_file", files.myntra);
+
+  const appendFile = (field, file, fallbackName) => {
+    if (!file) return;
+    formData.append(field, file, file.name || fallbackName);
+  };
+
+  appendFile("flipkart_file", files.flipkart, "flipkart.csv");
+  appendFile("amazon_file", files.amazon, "amazon.txt");
+  appendFile("ajio_file", files.ajio, "ajio.xlsx");
+  appendFile("meesho_file", files.meesho, "meesho.csv");
+  appendFile("myntra_file", files.myntra, "myntra.csv");
+
   return formData;
 }
 

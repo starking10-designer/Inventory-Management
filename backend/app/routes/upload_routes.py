@@ -12,6 +12,8 @@ from datetime import datetime, date
 import hashlib
 import shutil
 import os
+import re
+import uuid
 from openpyxl.styles import PatternFill
 
 from app.database.database import SessionLocal
@@ -21,7 +23,9 @@ from app.models.sku_master import (
     SKUPiece
 )
 from app.models.daily_report import DailyReport
+from app.models.daily_sales_report import DailySalesReport
 from app.models.return_inventory import ReturnInventory
+from app.models.stock_inventory import StockInventory
 from app.models.sales_upload import SalesUpload
 
 from app.services.excel_service import (
@@ -53,9 +57,103 @@ from app.services.excel_service import (
 
 router = APIRouter()
 
-UPLOAD_FOLDER = "uploads"
+BASE_DIR = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+    )
+)
+UPLOAD_FOLDER = os.path.join(
+    BASE_DIR,
+    "uploads"
+)
+PLATFORM_NAMES = [
+    "Flipkart",
+    "Amazon",
+    "Ajio",
+    "Meesho",
+    "Myntra",
+]
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def _clean_upload_filename(filename: str):
+    filename = os.path.basename(
+        filename or ""
+    ).strip()
+
+    if not filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is missing a filename.",
+        )
+
+    return re.sub(
+        r"[^A-Za-z0-9._() -]",
+        "_",
+        filename,
+    )
+
+
+def _save_upload(upload_file: UploadFile):
+    filename = _clean_upload_filename(
+        upload_file.filename
+    )
+
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        filename
+    )
+
+    if os.path.exists(file_path):
+        name, ext = os.path.splitext(filename)
+        file_path = os.path.join(
+            UPLOAD_FOLDER,
+            f"{name}_{uuid.uuid4().hex[:8]}{ext}"
+        )
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(
+                upload_file.file,
+                buffer
+            )
+    except OSError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not save uploaded file: {e}",
+        )
+
+    upload_file.saved_path = file_path
+    upload_file.saved_filename = os.path.basename(
+        file_path
+    )
+
+    return file_path
+
+
+def _upload_error(label: str, error: Exception):
+    if isinstance(error, HTTPException):
+        raise error
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"{label} upload failed: {error}",
+    )
+
+
+def _read_uploaded_orders(label: str, upload_file: UploadFile, reader):
+    file_path = _save_upload(upload_file)
+
+    try:
+        return reader(file_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not read {label} file: {e}",
+        )
 
 
 def save_daily_report_rows(
@@ -82,11 +180,86 @@ def save_daily_report_rows(
         )
 
 
-def _saved_upload_sha256(file_name: str):
-    file_path = os.path.join(
-        UPLOAD_FOLDER,
-        file_name
+def _safe_int(value):
+    try:
+        if pd.isna(value):
+            return 0
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value):
+    try:
+        if pd.isna(value):
+            return 0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def save_daily_sales_summary(
+    db: Session,
+    report_date: date,
+    platform: str,
+    orders,
+    mapped_piece_qty: int
+):
+    unique_order_ids = set()
+    fallback_order_count = 0
+    total_invoice_amount = 0
+
+    for row in orders:
+        total_invoice_amount += _safe_float(
+            row.get("price", 0)
+        )
+
+        order_id = str(
+            row.get("order_id", "")
+        ).strip()
+
+        if order_id:
+            unique_order_ids.add(order_id)
+        else:
+            fallback_order_count += 1
+
+    db.query(DailySalesReport).filter(
+        DailySalesReport.report_date == report_date,
+        DailySalesReport.platform == platform
+    ).delete()
+
+    db.add(
+        DailySalesReport(
+            report_date=report_date,
+            platform=platform,
+            total_orders=(
+                len(unique_order_ids)
+                + fallback_order_count
+            ),
+            total_piece_qty=mapped_piece_qty,
+            total_invoice_amount=round(
+                total_invoice_amount,
+                2
+            )
+        )
     )
+
+
+def _saved_upload_sha256(upload_file: UploadFile):
+    file_path = getattr(
+        upload_file,
+        "saved_path",
+        None
+    )
+
+    if not file_path:
+        file_path = os.path.join(
+            UPLOAD_FOLDER,
+            _clean_upload_filename(
+                upload_file.filename
+            )
+        )
+
     digest = hashlib.sha256()
 
     with open(file_path, "rb") as saved_file:
@@ -103,7 +276,7 @@ def _count_sales_upload_once(
     upload_file: UploadFile
 ):
     file_hash = _saved_upload_sha256(
-        upload_file.filename
+        upload_file
     )
 
     already_counted = db.query(SalesUpload).filter(
@@ -118,7 +291,11 @@ def _count_sales_upload_once(
         SalesUpload(
             report_date=report_date,
             platform=platform,
-            file_name=upload_file.filename,
+            file_name=getattr(
+                upload_file,
+                "saved_filename",
+                upload_file.filename
+            ),
             file_hash=file_hash
         )
     )
@@ -162,6 +339,16 @@ def _save_new_platform_sales(
             platform_name,
             platform_report
         )
+        save_daily_sales_summary(
+            db,
+            report_date,
+            platform_name,
+            orders,
+            sum(
+                _safe_int(item.get("qty", 0))
+                for item in platform_expanded
+            )
+        )
         counted_platforms.append(platform_name)
 
     return counted_platforms, skipped_platforms
@@ -196,7 +383,11 @@ def get_daily_report(
                 DailyReport.report_date == parsed_date
             )
 
-        if platform:
+        if platform == "All":
+            query = query.filter(
+                DailyReport.platform != "All"
+            )
+        elif platform:
             query = query.filter(
                 DailyReport.platform == platform
             )
@@ -248,7 +439,11 @@ def _daily_report_query(db: Session, report_date, platform):
             DailyReport.report_date == report_date
         )
 
-    if platform:
+    if platform == "All":
+        query = query.filter(
+            DailyReport.platform != "All"
+        )
+    elif platform:
         query = query.filter(
             DailyReport.platform == platform
         )
@@ -337,17 +532,39 @@ def delete_daily_report(
             DailyReport.report_date == parsed_date
         )
 
-        if platform:
+        if platform == "All":
+            query = query.filter(
+                DailyReport.platform != "All"
+            )
+        elif platform:
             query = query.filter(
                 DailyReport.platform == platform
             )
 
         deleted = query.delete(synchronize_session=False)
+
+        sales_query = db.query(DailySalesReport).filter(
+            DailySalesReport.report_date == parsed_date
+        )
+
+        if platform == "All":
+            sales_query = sales_query.filter(
+                DailySalesReport.platform.in_(PLATFORM_NAMES)
+            )
+        elif platform:
+            sales_query = sales_query.filter(
+                DailySalesReport.platform == platform
+            )
+
+        deleted_sales = sales_query.delete(
+            synchronize_session=False
+        )
         db.commit()
 
         return {
             "message": "Daily report deleted successfully",
             "deleted_rows": deleted,
+            "deleted_sales_rows": deleted_sales,
             "report_date": str(parsed_date),
             "platform": platform or "all",
         }
@@ -377,12 +594,48 @@ def sales_analytics(
             .all()
         )
 
-        platform_totals = {}
-        for row in rows:
-            platform_totals[row.platform] = (
-                platform_totals.get(row.platform, 0)
-                + int(row.total_order_qty or 0)
+        sales_rows = (
+            db.query(DailySalesReport)
+            .filter(
+                DailySalesReport.report_date == parsed_date
             )
+            .all()
+        )
+
+        sales_summary = {
+            name: {
+                "total_orders": 0,
+                "total_piece_qty": 0,
+                "total_invoice_amount": 0,
+            }
+            for name in PLATFORM_NAMES
+        }
+
+        for sales_row in sales_rows:
+            if sales_row.platform not in sales_summary:
+                sales_summary[sales_row.platform] = {
+                    "total_orders": 0,
+                    "total_piece_qty": 0,
+                    "total_invoice_amount": 0,
+                }
+
+            sales_summary[sales_row.platform] = {
+                "total_orders": int(
+                    sales_row.total_orders or 0
+                ),
+                "total_piece_qty": int(
+                    sales_row.total_piece_qty or 0
+                ),
+                "total_invoice_amount": round(
+                    float(sales_row.total_invoice_amount or 0),
+                    2
+                ),
+            }
+
+        platform_totals = {
+            name: totals["total_piece_qty"]
+            for name, totals in sales_summary.items()
+        }
 
         if platform and platform not in ("", "All"):
             filtered = [
@@ -439,7 +692,19 @@ def sales_analytics(
             "report_date": str(parsed_date),
             "platform": view_platform,
             "platform_totals": platform_totals,
+            "sales_summary": sales_summary,
+            "total_orders": sum(
+                item["total_orders"]
+                for item in sales_summary.values()
+            ),
             "grand_total": sum(platform_totals.values()),
+            "total_invoice_amount": round(
+                sum(
+                    item["total_invoice_amount"]
+                    for item in sales_summary.values()
+                ),
+                2
+            ),
             "top_products": top_products,
             "style_chart": style_chart,
         }
@@ -447,13 +712,420 @@ def sales_analytics(
         db.close()
 
 
+@router.get("/sales-analytics/export")
+def export_sales_analytics(
+    report_date: str = Query(None),
+    platform: str = Query("All"),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    data = sales_analytics(
+        report_date=report_date,
+        platform=platform,
+    )
+
+    selected_platform = data.get("platform") or "All"
+    sales_summary = data.get("sales_summary") or {}
+    top_products = data.get("top_products") or []
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sales Summary"
+
+    header_fill = PatternFill(
+        "solid",
+        fgColor="EDE9FE",
+    )
+    total_fill = PatternFill(
+        "solid",
+        fgColor="F5F3FF",
+    )
+
+    ws.append([
+        "Today's final sale report",
+    ])
+    ws.merge_cells(
+        start_row=1,
+        start_column=1,
+        end_row=1,
+        end_column=4,
+    )
+    ws["A1"].font = Font(
+        bold=True,
+        size=14,
+    )
+
+    ws.append([
+        "Date",
+        data.get("report_date", ""),
+    ])
+    ws.append([
+        "Platform",
+        selected_platform,
+    ])
+    ws.append([])
+    ws.append([
+        "Platform",
+        "Total orders",
+        "Total piece quantity",
+        "Total invoice amount",
+    ])
+
+    for cell in ws[5]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    summary_rows = [
+        (name, totals)
+        for name, totals in sales_summary.items()
+        if selected_platform == "All" or name == selected_platform
+    ]
+
+    for name, totals in summary_rows:
+        ws.append([
+            name,
+            int(totals.get("total_orders") or 0),
+            int(totals.get("total_piece_qty") or 0),
+            float(totals.get("total_invoice_amount") or 0),
+        ])
+
+    ws.append([
+        "Total",
+        int(data.get("total_orders") or 0)
+        if selected_platform == "All"
+        else sum(
+            int(totals.get("total_orders") or 0)
+            for _, totals in summary_rows
+        ),
+        int(data.get("grand_total") or 0)
+        if selected_platform == "All"
+        else sum(
+            int(totals.get("total_piece_qty") or 0)
+            for _, totals in summary_rows
+        ),
+        float(data.get("total_invoice_amount") or 0)
+        if selected_platform == "All"
+        else sum(
+            float(totals.get("total_invoice_amount") or 0)
+            for _, totals in summary_rows
+        ),
+    ])
+
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+        cell.fill = total_fill
+
+    for row in ws.iter_rows(
+        min_row=6,
+        min_col=4,
+        max_col=4,
+    ):
+        row[0].number_format = '#,##0.00'
+
+    for column_cells in ws.columns:
+        column_letter = get_column_letter(
+            column_cells[0].column
+        )
+        width = max(
+            len(str(cell.value or ""))
+            for cell in column_cells
+        )
+        ws.column_dimensions[column_letter].width = min(
+            max(width + 2, 12),
+            34,
+        )
+
+    product_ws = wb.create_sheet("Top Products")
+    product_ws.append([
+        "Rank",
+        "Style",
+        "Total quantity",
+        "Sizes",
+    ])
+
+    for cell in product_ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    for index, product in enumerate(top_products, start=1):
+        sizes = product.get("sizes") or {}
+        size_text = ", ".join(
+            f"{size}: {qty}"
+            for size, qty in sorted(sizes.items())
+        )
+        product_ws.append([
+            index,
+            product.get("style", ""),
+            int(product.get("total_qty") or 0),
+            size_text,
+        ])
+
+    for column_cells in product_ws.columns:
+        column_letter = get_column_letter(
+            column_cells[0].column
+        )
+        width = max(
+            len(str(cell.value or ""))
+            for cell in column_cells
+        )
+        product_ws.column_dimensions[column_letter].width = min(
+            max(width + 2, 12),
+            48,
+        )
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    safe_platform = re.sub(
+        r"[^A-Za-z0-9_-]",
+        "_",
+        selected_platform.lower(),
+    )
+    filename = (
+        f"final_sale_report_{data.get('report_date')}_{safe_platform}.xlsx"
+    )
+
+    return StreamingResponse(
+        output,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"'
+            )
+        },
+    )
+
+
 class ReturnInventoryUpdate(BaseModel):
+    qty: int = Field(ge=0)
+
+
+class StockInventoryUpdate(BaseModel):
     qty: int = Field(ge=0)
 
 
 def _admin_key_valid(x_admin_key: Optional[str]) -> bool:
     expected = os.getenv("ADMIN_API_KEY", "dev-admin")
     return bool(x_admin_key) and x_admin_key == expected
+
+
+def _display_stock_color(style: str, color: str):
+    return format_daily_report_color(
+        style,
+        color,
+    )
+
+def get_stock_inventory_style(style):
+    style_text = str(style).strip().lower()
+
+    if "lsds" in style_text or style_text.startswith("sn"):
+        return "lsds"
+
+    if "gv" in style_text:
+        return "gv print"
+    
+    if "sprn" in style_text:
+        return "sprn"
+
+    return None
+def normalize_stock_inventory_color(color):
+    color_text = str(color).strip().lower()
+
+    black_colors = {
+        "black-front tiger",
+        "black-boys",
+        "black-bat",
+        "black-beast",
+        "black-blue bull",
+        "black-bull",
+        "black-error",
+        "black-fearless",
+        "black-future",
+        "black-green eye",
+        "black-jordan",
+        "black-red bull",
+        "black-smile",
+        "black-yellow bull",
+        "black-bulls",
+        "black-cash",
+        "black-dirty",
+        "black-rules",
+        "black-skull",
+        "black-space",
+        "black-worry",
+    }
+
+    white_colors = {
+        "white-boys",
+        "white-blue bull",
+        "white-jordan",
+        "white-crack",
+        "white-dope",
+        "white-dreams",
+        "white-gang",
+        "white-free",
+        "white-eagle",
+        "white-flow",
+    }
+
+    if color_text in black_colors:
+        return "1 black"
+
+    if color_text in white_colors:
+        return "2 white"
+
+    return color
+
+def deduct_lsds_stock_inventory(report_rows, db):
+    lines_updated = 0
+    total_qty_deducted = 0
+    deductions = []
+
+    for row in report_rows:
+        original_style = str(
+            row.get("style", "")
+        ).strip()
+
+        style = get_stock_inventory_style(
+            original_style
+        )
+
+        if not style:
+            continue
+
+        qty = _safe_int(
+            row.get(
+                "need_from_stock",
+                row.get("stock_inventory", 0),
+            )
+        )
+
+        if qty <= 0:
+            continue
+
+        color = normalize_stock_inventory_color(
+            row.get("color", "")
+        )
+        size = str(row.get("size", "")).strip()
+
+        stock_row = db.query(StockInventory).filter(
+            StockInventory.style == style,
+            StockInventory.color == color,
+            StockInventory.size == size,
+        ).first()
+
+        if not stock_row:
+            stock_row = StockInventory(
+                style=style,
+                color=color,
+                size=size,
+                qty=0,
+            )
+            db.add(stock_row)
+            db.flush()
+
+        previous_qty = _safe_int(stock_row.qty)
+        deducted_qty = min(
+            previous_qty,
+            qty,
+        )
+        stock_row.qty = max(
+            previous_qty - qty,
+            0,
+        )
+
+        lines_updated += 1
+        total_qty_deducted += deducted_qty
+
+        deductions.append({
+            "style": style,
+            "color": color,
+            "size": size,
+            "requested_qty": qty,
+            "deducted_qty": deducted_qty,
+            "remaining_qty": stock_row.qty,
+        })
+
+    return {
+        "lines_updated": lines_updated,
+        "total_qty_deducted": total_qty_deducted,
+        "deductions": deductions,
+    }
+
+
+def seed_stock_inventory_if_empty(db):
+    has_rows = db.query(
+        StockInventory.id
+    ).first()
+
+    if has_rows:
+        return
+
+    sizes = ["M", "L", "XL"]
+
+    lsds_colors = [
+        ("1 black", 0, 0, 0),
+        ("2 white", 0, 0, 0),
+        ("3 grey", 0, 0, 0),
+        ("4 sandal", 0, 0, 0),
+        ("5 navy", 0, 0, 0),
+        ("6 pink", 0, 0, 0),
+        ("7 brown", 0, 0, 0),
+        ("8 olive", 0, 0, 0),
+        ("9 cream", 0, 0, 0),
+        ("10 grey melange", 0, 0, 0),
+        ("11 charcoal melange", 0, 0, 0),
+        ("12 dark grey", 0, 0, 0),
+    ]
+
+    gv_print_colors = [
+        ("black", 0, 0, 0),
+        ("navy", 0, 0, 0),
+        ("maroon", 0, 0, 0),
+        ('red', 0, 0, 0),
+        ("yellow", 0, 0, 0),
+        ("sky blue", 0, 0, 0),
+        ("light grey", 0, 0, 0),
+        ("dark grey", 0, 0, 0),
+    ]
+
+    sprn_colors = [
+        ("black", 0, 0, 0),
+        ("white", 0, 0, 0),
+        ("navy", 0, 0, 0),
+        ("maroon", 0, 0, 0),
+        ("light grey", 0, 0, 0),
+        ("dark grey", 0, 0, 0),
+    ]
+
+    inventories = [
+        ("lsds", lsds_colors),
+        ("gv print", gv_print_colors),
+        ("sprn", sprn_colors),
+    ]
+
+    for style, colors in inventories:
+        for color, *qty_values in colors:
+            for size, qty in zip(sizes, qty_values):
+                db.add(
+                    StockInventory(
+                        style=style,
+                        color=color,
+                        size=size,
+                        qty=qty,
+                    )
+                )
+
+    db.commit()
 
 
 # =====================================
@@ -552,16 +1224,7 @@ def upload_file(
     file: UploadFile = File(...)
 ):
 
-    file_path = (
-        f"{UPLOAD_FOLDER}/{file.filename}"
-    )
-
-    with open(file_path, "wb") as buffer:
-
-        shutil.copyfileobj(
-            file.file,
-            buffer
-        )
+    file_path = _save_upload(file)
 
     # =====================================
     # AUTO IMPORT SKU MASTER
@@ -573,18 +1236,24 @@ def upload_file(
         "master" in file.filename.lower()
     ):
 
-        excel_file = pd.ExcelFile(
-            file_path
-        )
+        try:
+            excel_file = pd.ExcelFile(
+                file_path
+            )
 
-        first_sheet = (
-            excel_file.sheet_names[0]
-        )
+            first_sheet = (
+                excel_file.sheet_names[0]
+            )
 
-        df = read_sku_sheet(
-            file_path,
-            first_sheet
-        )
+            df = read_sku_sheet(
+                file_path,
+                first_sheet
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not read SKU master Excel file: {e}",
+            )
 
         db: Session = SessionLocal()
 
@@ -737,6 +1406,15 @@ def upload_file(
 
             db.commit()
 
+        except Exception as e:
+
+            db.rollback()
+
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not import SKU master: {e}",
+            )
+
         finally:
 
             db.close()
@@ -747,7 +1425,11 @@ def upload_file(
         "File uploaded successfully",
 
         "filename":
-        file.filename
+        getattr(
+            file,
+            "saved_filename",
+            file.filename
+        )
     }
 
 
@@ -758,7 +1440,10 @@ def upload_file(
 @router.get("/read-master/{filename}")
 def read_master_file(filename: str):
 
-    file_path = f"uploads/{filename}"
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        _clean_upload_filename(filename)
+    )
 
     sheet_names = read_excel_file(
         file_path
@@ -783,7 +1468,10 @@ def get_sheet_columns(
     sheet_name: str
 ):
 
-    file_path = f"uploads/{filename}"
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        _clean_upload_filename(filename)
+    )
 
     return read_sheet_columns(
         file_path,
@@ -798,7 +1486,10 @@ def get_sheet_columns(
 @router.get("/read-csv-columns/{filename}")
 def get_csv_columns(filename: str):
 
-    file_path = f"uploads/{filename}"
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        _clean_upload_filename(filename)
+    )
 
     return read_csv_columns(file_path)
 
@@ -815,7 +1506,10 @@ def import_sku_sheet(
     sheet_name: str
 ):
 
-    file_path = f"uploads/{filename}"
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        _clean_upload_filename(filename)
+    )
 
     df = read_sku_sheet(
         file_path,
@@ -949,7 +1643,10 @@ def filter_orders(
     filename: str
 ):
 
-    file_path = f"uploads/{filename}"
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        _clean_upload_filename(filename)
+    )
 
     platform = platform.lower()
 
@@ -1005,16 +1702,7 @@ def upload_flipkart_returns(
     file: UploadFile = File(...)
 ):
 
-    file_path = (
-        f"uploads/{file.filename}"
-    )
-
-    with open(file_path, "wb") as buffer:
-
-        shutil.copyfileobj(
-            file.file,
-            buffer
-        )
+    file_path = _save_upload(file)
 
     try:
         return_orders = read_flipkart_return_file(file_path)
@@ -1033,6 +1721,92 @@ def upload_flipkart_returns(
             return_orders,
             db
         )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not import returns file: {e}"
+        )
+    finally:
+        db.close()
+
+
+@router.get("/stock-inventory")
+def list_stock_inventory(search: Optional[str] = Query(None)):
+    db: Session = SessionLocal()
+    try:
+        seed_stock_inventory_if_empty(db)
+
+        q = db.query(StockInventory)
+
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            q = q.filter(
+                or_(
+                    StockInventory.style.ilike(term),
+                    StockInventory.color.ilike(term),
+                    StockInventory.size.ilike(term),
+                )
+            )
+
+        rows = (
+            q.order_by(
+                StockInventory.style.asc(),
+                StockInventory.color.asc(),
+                StockInventory.size.asc(),
+            )
+            .all()
+        )
+        return {
+            "count": len(rows),
+            "rows": [
+                {
+                    "id": r.id,
+                    "style": r.style,
+                    "color": r.color,
+                    "display_color": _display_stock_color(
+                        r.style,
+                        r.color,
+                    ),
+                    "size": r.size,
+                    "qty": r.qty,
+                }
+                for r in rows
+            ],
+        }
+    finally:
+        db.close()
+
+
+@router.patch("/stock-inventory/{inventory_id}")
+def update_stock_inventory_qty(
+    inventory_id: int,
+    body: StockInventoryUpdate,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+):
+    if not _admin_key_valid(x_admin_key):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or missing admin key. Set X-Admin-Key header "
+            "to match ADMIN_API_KEY (default dev key: dev-admin).",
+        )
+    db: Session = SessionLocal()
+    try:
+        row = db.query(StockInventory).filter(
+            StockInventory.id == inventory_id
+        ).first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Inventory row not found")
+        row.qty = body.qty
+        db.commit()
+        db.refresh(row)
+        return {
+            "id": row.id,
+            "style": row.style,
+            "color": row.color,
+            "size": row.size,
+            "qty": row.qty,
+        }
     finally:
         db.close()
 
@@ -1049,7 +1823,9 @@ def generate_final_report(
 
     ajio_file: UploadFile = File(None),
 
-    meesho_file: UploadFile = File(None)
+    meesho_file: UploadFile = File(None),
+
+    myntra_file: UploadFile = File(None)
 ):
 
     all_orders = []
@@ -1062,20 +1838,11 @@ def generate_final_report(
 
     if flipkart_file:
 
-        file_path = (
-            f"uploads/{flipkart_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                flipkart_file.file,
-                buffer
-            )
-
         flipkart_orders = (
-            filter_flipkart_orders(
-                file_path
+            _read_uploaded_orders(
+                "Flipkart",
+                flipkart_file,
+                filter_flipkart_orders
             )
         )
         platform_orders["Flipkart"] = flipkart_orders
@@ -1090,20 +1857,11 @@ def generate_final_report(
 
     if amazon_file:
 
-        file_path = (
-            f"uploads/{amazon_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                amazon_file.file,
-                buffer
-            )
-
         amazon_orders = (
-            filter_amazon_orders(
-                file_path
+            _read_uploaded_orders(
+                "Amazon",
+                amazon_file,
+                filter_amazon_orders
             )
         )
         platform_orders["Amazon"] = amazon_orders
@@ -1118,20 +1876,11 @@ def generate_final_report(
 
     if ajio_file:
 
-        file_path = (
-            f"uploads/{ajio_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                ajio_file.file,
-                buffer
-            )
-
         ajio_orders = (
-            filter_ajio_orders(
-                file_path
+            _read_uploaded_orders(
+                "Ajio",
+                ajio_file,
+                filter_ajio_orders
             )
         )
         platform_orders["Ajio"] = ajio_orders
@@ -1146,26 +1895,36 @@ def generate_final_report(
 
     if meesho_file:
 
-        file_path = (
-            f"uploads/{meesho_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                meesho_file.file,
-                buffer
-            )
-
         meesho_orders = (
-            filter_meesho_orders(
-                file_path
+            _read_uploaded_orders(
+                "Meesho",
+                meesho_file,
+                filter_meesho_orders
             )
         )
         platform_orders["Meesho"] = meesho_orders
 
         all_orders.extend(
             meesho_orders
+        )
+
+    # =====================
+    # MYNTRA
+    # =====================
+
+    if myntra_file:
+
+        myntra_orders = (
+            _read_uploaded_orders(
+                "Myntra",
+                myntra_file,
+                filter_myntra_orders
+            )
+        )
+        platform_orders["Myntra"] = myntra_orders
+
+        all_orders.extend(
+            myntra_orders
         )
 
     # =====================
@@ -1207,6 +1966,7 @@ def generate_final_report(
                 "Amazon": amazon_file,
                 "Ajio": ajio_file,
                 "Meesho": meesho_file,
+                "Myntra": myntra_file,
             }
         )
 
@@ -1247,20 +2007,11 @@ def _collect_marketplace_orders(
 
     if flipkart_file:
 
-        file_path = (
-            f"uploads/{flipkart_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                flipkart_file.file,
-                buffer
-            )
-
         flipkart_orders = (
-            filter_flipkart_orders(
-                file_path
+            _read_uploaded_orders(
+                "Flipkart",
+                flipkart_file,
+                filter_flipkart_orders
             )
         )
         platform_orders["Flipkart"] = flipkart_orders
@@ -1275,20 +2026,11 @@ def _collect_marketplace_orders(
 
     if amazon_file:
 
-        file_path = (
-            f"uploads/{amazon_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                amazon_file.file,
-                buffer
-            )
-
         amazon_orders = (
-            filter_amazon_orders(
-                file_path
+            _read_uploaded_orders(
+                "Amazon",
+                amazon_file,
+                filter_amazon_orders
             )
         )
         platform_orders["Amazon"] = amazon_orders
@@ -1303,20 +2045,11 @@ def _collect_marketplace_orders(
 
     if ajio_file:
 
-        file_path = (
-            f"uploads/{ajio_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                ajio_file.file,
-                buffer
-            )
-
         ajio_orders = (
-            filter_ajio_orders(
-                file_path
+            _read_uploaded_orders(
+                "Ajio",
+                ajio_file,
+                filter_ajio_orders
             )
         )
         platform_orders["Ajio"] = ajio_orders
@@ -1331,20 +2064,11 @@ def _collect_marketplace_orders(
 
     if meesho_file:
 
-        file_path = (
-            f"uploads/{meesho_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                meesho_file.file,
-                buffer
-            )
-
         meesho_orders = (
-            filter_meesho_orders(
-                file_path
+            _read_uploaded_orders(
+                "Meesho",
+                meesho_file,
+                filter_meesho_orders
             )
         )
         platform_orders["Meesho"] = meesho_orders
@@ -1359,20 +2083,11 @@ def _collect_marketplace_orders(
 
     if myntra_file:
 
-        file_path = (
-            f"uploads/{myntra_file.filename}"
-        )
-
-        with open(file_path, "wb") as buffer:
-
-            shutil.copyfileobj(
-                myntra_file.file,
-                buffer
-            )
-
         myntra_orders = (
-            filter_myntra_orders(
-                file_path
+            _read_uploaded_orders(
+                "Myntra",
+                myntra_file,
+                filter_myntra_orders
             )
         )
         platform_orders["Myntra"] = myntra_orders
@@ -1437,7 +2152,7 @@ def export_final_report(
         final_report
     )
 
-    _save_new_platform_sales(
+    counted_platforms, _ = _save_new_platform_sales(
         db,
         report_date,
         platform_orders,
@@ -1449,6 +2164,34 @@ def export_final_report(
             "Myntra": myntra_file,
         }
     )
+
+    new_orders = []
+
+    for platform in counted_platforms:
+        new_orders.extend(
+            platform_orders.get(platform, [])
+        )
+
+    if new_orders:
+        deduction_orders = aggregate_orders(
+            new_orders
+        )
+        deduction_inventory = expand_inventory(
+            deduction_orders,
+            db
+        )
+        stock_deduction_report = generate_daily_report(
+            deduction_inventory,
+            db
+        )
+        deduct_lsds_stock_inventory(
+            stock_deduction_report,
+            db
+        )
+        deduct_return_inventory(
+            deduction_inventory,
+            db
+        )
 
     db.commit()
 
@@ -1476,7 +2219,10 @@ def export_final_report(
     )
 
     output_file = (
-        f"uploads/final_report_{timestamp}.xlsx"
+        os.path.join(
+            UPLOAD_FOLDER,
+            f"final_report_{timestamp}.xlsx"
+        )
     )
 
     wb = Workbook()
@@ -1581,6 +2327,18 @@ def export_final_report(
         fill_type="solid"
     )
 
+    subtotal_fill = PatternFill(
+        start_color="5B9BD5",
+        end_color="5B9BD5",
+        fill_type="solid"
+    )
+
+    subtotal_font = Font(
+        bold=True,
+        color="FFFFFF",
+        size=12,
+    )
+
 
     ws["A1"].fill = timestamp_fill
     ws["A1"].font = Font(bold=True, color="111827", size=12)
@@ -1633,7 +2391,82 @@ def export_final_report(
     # WRITE DATA
     # =====================
 
+    subtotal_rows = set()
+    blank_rows = set()
+    current_style = None
+    style_totals = None
+
+    def add_style_subtotal_row(style_name):
+        subtotal_row = [
+            style_name,
+            ""
+        ]
+
+        for size in available_sizes:
+            totals = style_totals.get(
+                size,
+                {
+                    "total_order_qty": 0,
+                    "return_qty": 0,
+                    "stock_qty": 0,
+                }
+            )
+
+            subtotal_row.extend([
+                (
+                    "-"
+                    if totals["total_order_qty"] == 0
+                    else totals["total_order_qty"]
+                ),
+                (
+                    "-"
+                    if totals["return_qty"] == 0
+                    else totals["return_qty"]
+                ),
+                (
+                    "-"
+                    if totals["stock_qty"] == 0
+                    else totals["stock_qty"]
+                ),
+            ])
+
+        ws.append(subtotal_row)
+
+        subtotal_row_number = ws.max_row
+
+        for cell in ws[subtotal_row_number]:
+            cell.fill = subtotal_fill
+            cell.font = subtotal_font
+            cell.alignment = center_align
+            cell.border = thin_border
+
     for (style, color), sizes in grouped_data.items():
+
+        if current_style is None:
+            current_style = style
+            style_totals = {
+                size: {
+                    "total_order_qty": 0,
+                    "return_qty": 0,
+                    "stock_qty": 0,
+                }
+                for size in available_sizes
+            }
+
+        elif style != current_style:
+            add_style_subtotal_row(current_style)
+            ws.append([])
+            blank_rows.add(ws.max_row)
+
+            current_style = style
+            style_totals = {
+                size: {
+                    "total_order_qty": 0,
+                    "return_qty": 0,
+                    "stock_qty": 0,
+                }
+                for size in available_sizes
+            }
 
         row = [
             style,
@@ -1654,6 +2487,16 @@ def export_final_report(
                 stock_qty = data.get(
                     "need_from_stock",
                     data.get("stock_inventory", 0)
+                )
+
+                style_totals[size]["total_order_qty"] += _safe_int(
+                    total_qty or 0
+                )
+                style_totals[size]["return_qty"] += _safe_int(
+                    return_qty or 0
+                )
+                style_totals[size]["stock_qty"] += _safe_int(
+                    stock_qty or 0
                 )
 
                 row.extend([
@@ -1685,6 +2528,9 @@ def export_final_report(
                 ])
 
         ws.append(row)
+
+    if current_style is not None:
+        add_style_subtotal_row(current_style)
 
     # =====================
     # COLUMN WIDTH (A4 portrait)
@@ -1766,9 +2612,18 @@ def export_final_report(
 
         for cell in row:
 
+            if cell.row in blank_rows:
+                continue
+
             cell.alignment = center_align
-            cell.font = data_font
             cell.border = thin_border
+
+            if cell.row in subtotal_rows:
+                cell.font = subtotal_font
+                cell.fill = subtotal_fill
+                continue
+
+            cell.font = data_font
 
             # =====================
             # HIGHLIGHT RETURN QTY
@@ -1874,7 +2729,7 @@ def confirm_final_report(
 )
 def current_sku_master():
 
-    upload_folder = "uploads"
+    upload_folder = UPLOAD_FOLDER
 
     if not os.path.exists(
         upload_folder
@@ -1921,12 +2776,51 @@ def current_sku_master():
         "filename": latest_file
     }
 
+@router.get("/stock-alerts")
+def stock_alerts(
+    threshold: int = Query(250)
+):
+    db: Session = SessionLocal()
+
+    try:
+        rows = (
+            db.query(StockInventory)
+            .filter(
+                StockInventory.qty < threshold
+            )
+            .order_by(
+                StockInventory.qty.asc(),
+                StockInventory.style.asc(),
+                StockInventory.color.asc(),
+                StockInventory.size.asc(),
+            )
+            .all()
+        )
+
+        return {
+            "count": len(rows),
+            "threshold": threshold,
+            "items": [
+                {
+                    "id": row.id,
+                    "style": row.style,
+                    "color": row.color,
+                    "size": row.size,
+                    "qty": row.qty,
+                }
+                for row in rows
+            ],
+        }
+
+    finally:
+        db.close()
+
 @router.delete(
     "/delete-sku-master"
 )
 def delete_sku_master(db: Session = Depends(get_db)):
 
-    upload_folder = "uploads"
+    upload_folder = UPLOAD_FOLDER
 
     if os.path.exists(
         upload_folder

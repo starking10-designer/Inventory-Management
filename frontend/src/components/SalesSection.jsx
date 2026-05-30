@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { API_BASE } from "../api.js";
-import { TrendingUp, BarChart3 } from "lucide-react";
+import { TrendingUp, BarChart3, Download } from "lucide-react";
 import {
   PieChart,
   Pie,
@@ -43,11 +43,20 @@ function todayYmd() {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
+function formatMoney(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+}
+
 export default function SalesSection() {
   const [reportDate, setReportDate] = useState(todayYmd);
   const [platform, setPlatform] = useState("All");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const loadSales = async () => {
     setLoading(true);
@@ -65,9 +74,40 @@ export default function SalesSection() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportDate, platform]);
+
+  const downloadSalesReport = async () => {
+    setDownloading(true);
+    try {
+      const response = await axios.get(`${API_BASE}/sales-analytics/export`, {
+        params: { report_date: reportDate, platform },
+        responseType: "blob",
+      });
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `final_sale_report_${reportDate}_${platform.toLowerCase()}.xlsx`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert("Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const sizeColumns = useMemo(() => {
     if (!data?.top_products?.length) return [];
@@ -86,9 +126,26 @@ export default function SalesSection() {
       qty: item.qty,
     })) ?? [];
 
-  const platformEntries = data?.platform_totals
-    ? Object.entries(data.platform_totals).sort((a, b) => b[1] - a[1])
-    : [];
+  const summaryRows = useMemo(() => {
+    const entries = Object.entries(data?.sales_summary ?? {});
+    const rows = entries.map(([name, totals]) => ({
+      platform: name,
+      total_orders: totals.total_orders ?? 0,
+      total_piece_qty: totals.total_piece_qty ?? 0,
+      total_invoice_amount: totals.total_invoice_amount ?? 0,
+    }));
+
+    if (platform && platform !== "All") {
+      return rows.filter((row) => row.platform === platform);
+    }
+
+    return rows;
+  }, [data, platform]);
+
+  const hasSales =
+    (data?.total_orders ?? 0) > 0 ||
+    (data?.grand_total ?? 0) > 0 ||
+    (data?.total_invoice_amount ?? 0) > 0;
 
   return (
     <div className="rounded-2xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm mb-8">
@@ -96,22 +153,33 @@ export default function SalesSection() {
         <div>
           <h2 className="text-xl font-bold flex items-center gap-2">
             <TrendingUp className="text-violet-600" size={24} />
-            Sales overview
+            Today's final sale report
           </h2>
           <p className="text-slate-500 text-sm mt-1">
-            Sold quantities from saved daily reports (per marketplace).
+            Platform-wise final sales from filtered daily report rows.
           </p>
         </div>
         <div className="flex flex-wrap gap-3 items-end">
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
-            Date
-            <input
-              type="date"
-              value={reportDate}
-              onChange={(e) => setReportDate(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-            />
-          </label>
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs text-slate-600">
+              Date
+              <input
+                type="date"
+                value={reportDate}
+                onChange={(e) => setReportDate(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={downloadSalesReport}
+              disabled={loading || downloading || !reportDate}
+              title="Download Excel"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-violet-700 hover:bg-violet-50 disabled:opacity-40 transition"
+            >
+              <Download size={18} />
+            </button>
+          </div>
           <label className="flex flex-col gap-1 text-xs text-slate-600">
             View platform
             <select
@@ -131,29 +199,73 @@ export default function SalesSection() {
 
       {loading ? (
         <p className="text-slate-500 text-sm py-8 text-center">Loading sales…</p>
-      ) : !data || data.grand_total === 0 ? (
+      ) : !data || !hasSales ? (
         <p className="text-slate-500 text-sm py-8 text-center">
           No sales data for this date. Generate a final report first.
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            {platformEntries.map(([name, qty]) => (
-              <div
-                key={name}
-                className="rounded-xl bg-white/70 border border-slate-200/80 px-3 py-3 text-center"
-              >
-                <p className="text-xs text-slate-500 truncate">{name}</p>
-                <p className="text-lg font-bold text-slate-900 tabular-nums mt-1">
-                  {qty}
-                </p>
-              </div>
-            ))}
-            <div className="rounded-xl bg-violet-100/80 border border-violet-200 px-3 py-3 text-center">
-              <p className="text-xs text-violet-700 font-medium">Total sold</p>
-              <p className="text-lg font-bold text-violet-900 tabular-nums mt-1">
-                {data.grand_total}
-              </p>
+          <div className="rounded-xl border border-slate-200/80 bg-white/70 overflow-hidden mb-6">
+            <div className="overflow-auto">
+              <table className="w-full text-sm text-left min-w-[620px]">
+                <thead className="bg-slate-100/90 text-xs uppercase text-slate-600">
+                  <tr>
+                    <th className="px-4 py-3">Platform</th>
+                    <th className="px-4 py-3 text-right">Total orders</th>
+                    <th className="px-4 py-3 text-right">Total piece quantity</th>
+                    <th className="px-4 py-3 text-right">Total invoice amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryRows.map((row) => (
+                    <tr
+                      key={row.platform}
+                      className="border-t border-slate-100 hover:bg-slate-50/80"
+                    >
+                      <td className="px-4 py-3 font-medium">{row.platform}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {row.total_orders}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {row.total_piece_qty}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {formatMoney(row.total_invoice_amount)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-violet-200 bg-violet-50/80 font-semibold text-violet-950">
+                    <td className="px-4 py-3">Total</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {platform === "All"
+                        ? data.total_orders
+                        : summaryRows.reduce(
+                            (sum, row) => sum + row.total_orders,
+                            0,
+                          )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {platform === "All"
+                        ? data.grand_total
+                        : summaryRows.reduce(
+                            (sum, row) => sum + row.total_piece_qty,
+                            0,
+                          )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {formatMoney(
+                        platform === "All"
+                          ? data.total_invoice_amount
+                          : summaryRows.reduce(
+                              (sum, row) =>
+                                sum + row.total_invoice_amount,
+                              0,
+                            ),
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

@@ -39,6 +39,55 @@ def clean_color_name(color_name):
     return color_name.strip()
 
 
+def parse_money(value):
+
+    if value is None or pd.isna(value):
+        return 0
+
+    cleaned = re.sub(
+        r"[^0-9.\-]",
+        "",
+        str(value)
+    )
+
+    if cleaned in ("", "-", ".", "-."):
+        return 0
+
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0
+
+
+def enrich_order_rows(df, order_id_col, price_col, meesho_fee=0):
+
+    orders = df.copy()
+    order_values = (
+        orders[order_id_col]
+        if order_id_col in orders.columns
+        else ""
+    )
+    price_values = (
+        orders[price_col]
+        if price_col in orders.columns
+        else 0
+    )
+
+    orders["order_id"] = (
+        pd.Series(order_values, index=orders.index)
+        .astype(str)
+        .str.strip()
+    )
+
+    orders["price"] = (
+        pd.Series(price_values, index=orders.index)
+        .apply(parse_money)
+        + meesho_fee
+    )
+
+    return orders
+
+
 # =========================
 # FILE READERS
 # =========================
@@ -136,8 +185,14 @@ def filter_flipkart_orders(file_path):
         (df["orderstate"].isin(valid_states))
     ]
 
-    return filtered_df[
-        ["sku", "quantity"]
+    enriched_df = enrich_order_rows(
+        filtered_df,
+        "orderid",
+        "invoiceamount"
+    )
+
+    return enriched_df[
+        ["sku", "quantity", "order_id", "price"]
     ].fillna("").to_dict(orient="records")
 
 
@@ -156,8 +211,14 @@ def filter_amazon_orders(file_path):
         .str.lower() == "pending"
     ]
 
-    return filtered_df[
-        ["sku", "quantity"]
+    enriched_df = enrich_order_rows(
+        filtered_df,
+        "amazon-order-id",
+        "item-price"
+    )
+
+    return enriched_df[
+        ["sku", "quantity", "order_id", "price"]
     ].fillna("").to_dict(orient="records")
 
 
@@ -176,8 +237,14 @@ def filter_ajio_orders(file_path):
         .str.lower() == "new"
     ]
 
-    return filtered_df[
-        ["sellersku", "orderqty"]
+    enriched_df = enrich_order_rows(
+        filtered_df,
+        "custorderno",
+        "sellingprice"
+    )
+
+    return enriched_df[
+        ["sellersku", "orderqty", "order_id", "price"]
     ].rename(
         columns={
             "sellersku": "sku",
@@ -217,8 +284,15 @@ def filter_meesho_orders(file_path):
         .str.strip()
     )
 
-    return filtered_df[
-        ["sku", "quantity"]
+    enriched_df = enrich_order_rows(
+        filtered_df,
+        "suborderno",
+        "supplierdiscountedprice(inclgstandcommission)",
+        meesho_fee=55
+    )
+
+    return enriched_df[
+        ["sku", "quantity", "order_id", "price"]
     ].fillna("").to_dict(
         orient="records"
     )
@@ -249,15 +323,19 @@ def filter_myntra_orders(file_path):
             row.get("sellerskucode", "")
         ).strip()
 
-        qty = int(
-            row.get("quantity", 0)
-        )
+        qty = 1
 
         if sku and qty > 0:
 
             orders.append({
                 "sku": sku,
-                "quantity": qty
+                "quantity": qty,
+                "order_id": str(
+                    row.get("orderid", "")
+                ).strip(),
+                "price": parse_money(
+                    row.get("sellingvalue", 0)
+                )
             })
 
     return orders
@@ -659,7 +737,7 @@ def deduct_return_inventory(expanded_inventory, db):
     db.commit()
 
     return {
-        "message": "Return inventory deducted after report confirmation",
+        "message": "Return inventory deducted after final report generation",
         "lines_updated": lines_updated,
         "total_qty_deducted": total_qty_deducted,
         "deductions": deductions,

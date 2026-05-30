@@ -18,8 +18,16 @@ from app.models.return_inventory import (
     ReturnInventory
 )
 
+from app.models.stock_inventory import (
+    StockInventory
+)
+
 from app.models.daily_report import (
     DailyReport
+)
+
+from app.models.daily_sales_report import (
+    DailySalesReport
 )
 
 from app.models.sales_upload import (
@@ -54,7 +62,8 @@ app.add_middleware(
     CORSMiddleware,
 
     allow_origins=[
-        "http://localhost:5173"
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
     ],
 
     allow_credentials=True,

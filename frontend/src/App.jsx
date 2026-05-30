@@ -3,15 +3,13 @@ import { Link } from "react-router-dom";
 import axios from "axios";
 import {
   Upload,
-  FileSpreadsheet,
   Package,
-  Truck,
   ListOrdered,
   Warehouse,
   ChevronRight,
   Printer,
-  CheckCircle2,
   Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { API_BASE } from "./api.js";
 import SalesSection from "./components/SalesSection.jsx";
@@ -24,11 +22,35 @@ import {
   clearConfirmationMarketplaceFiles,
   clearPendingMarketplaceFiles,
   deletePendingMarketplaceFile,
-  loadConfirmationMarketplaceFiles,
   loadPendingMarketplaceFiles,
-  saveConfirmationMarketplaceFiles,
   savePendingMarketplaceFile,
 } from "./utils/pendingMarketplaceFiles.js";
+
+const getUploadErrorMessage = async (error, fallback) => {
+  const responseData = error.response?.data;
+
+  if (responseData instanceof Blob) {
+    try {
+      const text = await responseData.text();
+      const json = JSON.parse(text);
+      return json.detail || json.error || text || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  const detail = responseData?.detail || responseData?.error;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (detail) {
+    return JSON.stringify(detail);
+  }
+
+  return error.message || fallback;
+};
 
 function App() {
   const [flipkartFile, setFlipkartFile] = useState(null);
@@ -43,7 +65,6 @@ function App() {
   const returnsFileInputRef = useRef(null);
   const [returnsUploading, setReturnsUploading] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
-  const [confirmationFiles, setConfirmationFiles] = useState(null);
 
   const marketplaceFiles = () => ({
     flipkart: flipkartFile,
@@ -60,10 +81,6 @@ function App() {
     setMeeshoFile(null);
     setMyntraFile(null);
   };
-
-  const hasPendingConfirmation = hasMarketplaceFiles(
-    confirmationFiles ?? {}
-  );
 
   const uploadCards = [
     {
@@ -127,48 +144,12 @@ function App() {
         { responseType: "blob" },
       );
       downloadReportBlob(response.data);
-      await saveConfirmationMarketplaceFiles(files);
       await clearPendingMarketplaceFiles();
-      setConfirmationFiles(files);
+      await clearConfirmationMarketplaceFiles();
       clearMarketplaceFileState();
     } catch (error) {
       console.error(error);
-      alert("Failed to generate report");
-    } finally {
-      setReportBusy(false);
-    }
-  };
-
-  const confirmFinalReport = async () => {
-    const files = hasPendingConfirmation
-      ? confirmationFiles
-      : marketplaceFiles();
-    if (!hasMarketplaceFiles(files)) {
-      alert("Upload at least one marketplace order file.");
-      return;
-    }
-
-    const ok = window.confirm(
-      "Confirm this report and deduct used return quantities from return inventory? This cannot be undone automatically.",
-    );
-    if (!ok) return;
-
-    setReportBusy(true);
-    try {
-      const formData = buildMarketplaceFormData(files);
-      const { data } = await axios.post(
-        `${API_BASE}/confirm-final-report`,
-        formData,
-      );
-      alert(
-        `${data.message}\nDeducted: ${data.total_qty_deducted ?? 0} units across ${data.lines_updated ?? 0} line(s).`,
-      );
-      await clearConfirmationMarketplaceFiles();
-      setConfirmationFiles(null);
-    } catch (error) {
-      console.error(error);
-      const d = error.response?.data?.detail;
-      alert(typeof d === "string" ? d : "Failed to confirm report");
+      alert(await getUploadErrorMessage(error, "Failed to generate report"));
     } finally {
       setReportBusy(false);
     }
@@ -193,23 +174,45 @@ function App() {
       });
     } catch (error) {
       console.error(error);
-      alert("Failed to prepare report for print");
+      alert(
+        await getUploadErrorMessage(
+          error,
+          "Failed to prepare report for print",
+        ),
+      );
     } finally {
       setReportBusy(false);
     }
   };
 
   const uploadSkuMaster = async () => {
+    if (!(skuMasterFile instanceof File)) {
+      alert("Please select a valid SKU file");
+      return;
+    }
+
     try {
       const formData = new FormData();
-      formData.append("file", skuMasterFile);
-      await axios.post(`${API_BASE}/upload-file`, formData);
+
+      formData.append("file", skuMasterFile, skuMasterFile.name);
+
+      console.log("Uploading:", skuMasterFile);
+
+      const response = await axios.post(`${API_BASE}/upload-file`, formData);
+
+      console.log(response.data);
+
       alert("SKU Master Uploaded Successfully");
+
       await fetchCurrentSkuMaster();
     } catch (error) {
-      console.error(error.response);
-      alert("Failed to upload SKU master");
-      if (skuMasterFile?.name) setActiveSkuMaster(skuMasterFile.name);
+      console.log("FULL ERROR:", error);
+
+      console.log("RESPONSE DATA:", error.response?.data);
+
+      console.log("RESPONSE STATUS:", error.response?.status);
+
+      alert(await getUploadErrorMessage(error, "SKU Master upload failed"));
     }
   };
 
@@ -248,9 +251,9 @@ function App() {
 
     Promise.all([
       loadPendingMarketplaceFiles(),
-      loadConfirmationMarketplaceFiles(),
+      clearConfirmationMarketplaceFiles(),
     ])
-      .then(([files, confirmFiles]) => {
+      .then(([files]) => {
         if (!active) return;
 
         setFlipkartFile(files.flipkart);
@@ -258,9 +261,6 @@ function App() {
         setAjioFile(files.ajio);
         setMeeshoFile(files.meesho);
         setMyntraFile(files.myntra);
-        setConfirmationFiles(
-          hasMarketplaceFiles(confirmFiles) ? confirmFiles : null
-        );
       })
       .catch((error) => {
         console.error("Failed to restore marketplace files", error);
@@ -300,24 +300,41 @@ function App() {
     setReturnsUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", file, file.name || "returns.csv");
       const { data } = await axios.post(`${API_BASE}/upload-returns`, formData);
       const n = data.updated_items ?? 0;
       alert(`${data.message ?? "Done"} (${n} SKU piece updates)`);
     } catch (err) {
       console.error(err);
-      const d = err.response?.data?.detail;
-      alert(
-        typeof d === "string"
-          ? d
-          : d
-            ? JSON.stringify(d)
-            : "Returns upload failed",
-      );
+      alert(await getUploadErrorMessage(err, "Returns upload failed"));
     } finally {
       setReturnsUploading(false);
     }
   };
+
+  const [alerts, setAlerts] = useState({
+    count: 0,
+    items: [],
+  });
+
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
+
+  const loadStockAlerts = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/stock-alerts`);
+
+      setAlerts({
+        count: response.data.count || 0,
+        items: response.data.items || [],
+      });
+    } catch (error) {
+      console.error("Failed to load stock alerts", error);
+    }
+  };
+
+  useEffect(() => {
+    loadStockAlerts();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-sky-100 text-slate-800">
@@ -325,7 +342,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              Inventory Management
+              I&D Inventory Management
             </h1>
             <p className="text-slate-500 mt-1 text-sm">
               Warehouse Dispatch Dashboard
@@ -338,38 +355,41 @@ function App() {
       </div>
 
       <div className="max-w-7xl mx-auto p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
-          <div className="rounded-3xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+          <div className="rounded-3xl bg-white/55 p-5 backdrop-blur-xl shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-500 text-sm">Platforms</p>
-                <h2 className="text-3xl font-bold mt-2">5</h2>
+                <p className="text-slate-500 text-sm">Low Stock Alerts</p>
+
+                <h2 className="text-3xl font-bold text-red-600 mt-1">
+                  {alerts.count}
+                </h2>
               </div>
-              <div className="w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center">
-                <Package size={28} className="text-indigo-600" />
+
+              <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center">
+                <AlertTriangle size={28} className="text-red-600" />
               </div>
             </div>
-          </div>
-          <div className="rounded-3xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-500 text-sm">Daily Orders</p>
-                <h2 className="text-3xl font-bold mt-2">Ready</h2>
-              </div>
-              <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center">
-                <Truck size={28} className="text-emerald-600" />
-              </div>
-            </div>
-          </div>
-          <div className="rounded-3xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-500 text-sm">Report Status</p>
-                <h2 className="text-3xl font-bold mt-2">Pending</h2>
-              </div>
-              <div className="w-14 h-14 rounded-2xl bg-pink-100 flex items-center justify-center">
-                <FileSpreadsheet size={28} className="text-pink-600" />
-              </div>
+
+            <div className="mt-4 space-y-1">
+              {alerts.items.slice(0, 3).map((item) => (
+                <div
+                  key={`${item.style}-${item.color}-${item.size}`}
+                  className="text-xs text-red-600"
+                >
+                  {item.style} | {item.color} | {item.size} ({item.qty})
+                </div>
+              ))}
+
+              {alerts.count > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowLowStockModal(true)}
+                  className="text-xs text-indigo-600 font-medium pt-1 hover:underline"
+                >
+                  View all items
+                </button>
+              )}
             </div>
           </div>
           <div className="rounded-3xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm">
@@ -409,6 +429,7 @@ function App() {
                 )}
                 <button
                   type="button"
+                  disabled={!skuMasterFile}
                   onClick={uploadSkuMaster}
                   className="mt-3 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 text-white text-xs font-semibold hover:scale-[1.02] transition"
                 >
@@ -421,7 +442,7 @@ function App() {
 
         <SalesSection />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
           <Link
             to="/daily-report"
             className="group flex flex-col rounded-2xl border border-white/80 bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/40"
@@ -433,14 +454,17 @@ function App() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-slate-900">
-                    Daily final order details
+                    Daily order details
                   </h2>
                   <p className="text-slate-500 text-sm mt-1">
                     Full table: date, platform, style, color, size, quantities.
                   </p>
                 </div>
               </div>
-              <ChevronRight className="text-slate-400 group-hover:text-indigo-600 shrink-0 mt-1" size={22} />
+              <ChevronRight
+                className="text-slate-400 group-hover:text-indigo-600 shrink-0 mt-1"
+                size={22}
+              />
             </div>
             <span className="mt-4 inline-flex items-center text-sm font-semibold text-indigo-700">
               Open detailed view
@@ -461,14 +485,46 @@ function App() {
                     Return inventory
                   </h2>
                   <p className="text-slate-500 text-sm mt-1">
-                    Search return stock and edit quantities on a dedicated page.
+                    maintain return stock levels by style, color, size, and
+                    total pieces.
                   </p>
                 </div>
               </div>
-              <ChevronRight className="text-slate-400 group-hover:text-emerald-600 shrink-0 mt-1" size={22} />
+              <ChevronRight
+                className="text-slate-400 group-hover:text-emerald-600 shrink-0 mt-1"
+                size={22}
+              />
             </div>
             <span className="mt-4 inline-flex items-center text-sm font-semibold text-emerald-700">
               Open detailed view
+            </span>
+          </Link>
+
+          <Link
+            to="/stock-inventory"
+            className="group flex flex-col rounded-2xl border border-white/80 bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/40"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+                  <Package className="text-indigo-600" size={22} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Stock inventory
+                  </h2>
+                  <p className="text-slate-500 text-sm mt-1">
+                    plain pieces stock by color, size, and editable total.
+                  </p>
+                </div>
+              </div>
+              <ChevronRight
+                className="text-slate-400 group-hover:text-indigo-600 shrink-0 mt-1"
+                size={22}
+              />
+            </div>
+            <span className="mt-4 inline-flex items-center text-sm font-semibold text-indigo-700">
+              Open stock view
             </span>
           </Link>
         </div>
@@ -488,7 +544,7 @@ function App() {
                   key={item.title}
                   className="relative rounded-xl border border-white/80 bg-white/45 backdrop-blur p-4 hover:border-indigo-300 hover:bg-indigo-50/70 transition-all duration-300 group"
                 >
-                  {item.state && !hasPendingConfirmation && (
+                  {item.state && (
                     <button
                       type="button"
                       title={`Remove ${item.title} file`}
@@ -500,15 +556,13 @@ function App() {
                   )}
                   <label
                     className={`block ${
-                      item.state || hasPendingConfirmation
-                        ? "cursor-default"
-                        : "cursor-pointer"
+                      item.state ? "cursor-default" : "cursor-pointer"
                     }`}
                   >
                     <input
                       type="file"
                       className="hidden"
-                      disabled={!!item.state || hasPendingConfirmation}
+                      disabled={!!item.state}
                       onChange={(e) => {
                         selectMarketplaceFile(item, e.target.files?.[0]);
                         e.target.value = "";
@@ -542,19 +596,10 @@ function App() {
               <button
                 type="button"
                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 font-semibold text-sm shadow-lg shadow-indigo-500/20 text-white hover:scale-[1.02] transition disabled:opacity-60"
-                disabled={reportBusy || hasPendingConfirmation}
+                disabled={reportBusy}
                 onClick={generateFinalReport}
               >
                 {reportBusy ? "Generating…" : "Generate Final Report"}
-              </button>
-              <button
-                type="button"
-                disabled={reportBusy}
-                onClick={confirmFinalReport}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 disabled:opacity-60 transition inline-flex items-center gap-2"
-              >
-                <CheckCircle2 size={18} />
-                {reportBusy ? "Processing…" : "Confirm Report"}
               </button>
               <button
                 type="button"
@@ -577,6 +622,56 @@ function App() {
           </div>
         </div>
       </div>
+      {showLowStockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl p-6 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-red-600">
+                Low Stock Items ({alerts.count})
+              </h2>
+
+              <button
+                onClick={() => setShowLowStockModal(false)}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Style</th>
+                    <th className="text-left py-2">Color</th>
+                    <th className="text-left py-2">Size</th>
+                    <th className="text-right py-2">Qty</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {alerts.items.map((item) => (
+                    <tr
+                      key={`${item.style}-${item.color}-${item.size}`}
+                      className="border-b"
+                    >
+                      <td className="py-2">{item.style}</td>
+
+                      <td className="py-2">{item.color}</td>
+
+                      <td className="py-2">{item.size}</td>
+
+                      <td className="py-2 text-right font-semibold text-red-600">
+                        {item.qty}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
