@@ -81,7 +81,7 @@ export function printFinalReport(report, meta = {}) {
   let header2 = "<tr>";
   for (const size of sizes) {
     header1 += `<th colspan="3">${size}</th>`;
-    header2 += `<th>Order</th><th>Return</th><th>Stock</th>`;
+    header2 += `<th>Order</th><th>Return</th><th>Need to Print</th>`;
   }
   header1 += "</tr>";
   header2 += "</tr>";

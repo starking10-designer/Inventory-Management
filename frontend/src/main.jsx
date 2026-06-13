@@ -6,6 +6,8 @@ import App from "./App.jsx";
 import DailyReportPage from "./pages/DailyReportPage.jsx";
 import InventoryPage from "./pages/InventoryPage.jsx";
 import StockInventoryPage from "./pages/StockInventoryPage.jsx";
+import StickerInventoryPage from "./pages/StickerInventoryPage.jsx";
+import LowStockPage from "./pages/LowStockPage.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
@@ -15,6 +17,8 @@ createRoot(document.getElementById("root")).render(
         <Route path="/daily-report" element={<DailyReportPage />} />
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/stock-inventory" element={<StockInventoryPage />} />
+        <Route path="/sticker-inventory" element={<StickerInventoryPage />} />
+        <Route path="/low-stock" element={<LowStockPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

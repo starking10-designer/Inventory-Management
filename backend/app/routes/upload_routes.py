@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Header
+from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Header, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from fastapi.responses import FileResponse, StreamingResponse
@@ -26,6 +26,7 @@ from app.models.daily_report import DailyReport
 from app.models.daily_sales_report import DailySalesReport
 from app.models.return_inventory import ReturnInventory
 from app.models.stock_inventory import StockInventory
+from app.models.sticker_inventory import StickerInventory
 from app.models.sales_upload import SalesUpload
 
 from app.services.excel_service import (
@@ -369,16 +370,7 @@ def get_daily_report(
         query = db.query(DailyReport)
 
         if report_date:
-            try:
-                parsed_date = datetime.strptime(
-                    report_date,
-                    "%Y-%m-%d"
-                ).date()
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid date format. Use YYYY-MM-DD."
-                )
+            parsed_date = _parse_report_date(report_date)
             query = query.filter(
                 DailyReport.report_date == parsed_date
             )
@@ -419,16 +411,19 @@ def get_daily_report(
 
 
 def _parse_report_date(report_date: str):
-    try:
-        return datetime.strptime(
-            report_date,
-            "%Y-%m-%d"
-        ).date()
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid date format. Use YYYY-MM-DD."
-        )
+    for date_format in ("%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(
+                report_date,
+                date_format
+            ).date()
+        except ValueError:
+            continue
+
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid date format. Use YYYY-MM-DD or DD-MM-YYYY."
+    )
 
 
 def _daily_report_query(db: Session, report_date, platform):
@@ -500,7 +495,7 @@ def export_daily_report(
         buffer.seek(0)
         date_part = (
             str(parsed_date) if parsed_date
-            else datetime.now().strftime("%Y-%m-%d")
+            else datetime.now().strftime("%d-%m-%Y")
         )
         plat_part = platform or "all"
         filename = f"daily_report_{date_part}_{plat_part}.csv"
@@ -913,6 +908,10 @@ class StockInventoryUpdate(BaseModel):
     qty: int = Field(ge=0)
 
 
+class StickerInventoryUpdate(BaseModel):
+    qty: int = Field(ge=0)
+
+
 def _admin_key_valid(x_admin_key: Optional[str]) -> bool:
     expected = os.getenv("ADMIN_API_KEY", "dev-admin")
     return bool(x_admin_key) and x_admin_key == expected
@@ -984,6 +983,79 @@ def normalize_stock_inventory_color(color):
         return "2 white"
 
     return color
+
+
+STICKER_COLORS = [
+    "1 black",
+    "2 white",
+    "3 grey",
+    "4 sandal",
+    "5 navy",
+    "6 pink",
+    "7 brown",
+    "8 olive",
+]
+
+STICKER_STYLES = [
+    "lsds",
+    "sn450",
+    "sn451",
+    "sn452",
+]
+
+STICKER_COLOR_BY_NAME = {
+    color.split(" ", 1)[1]: color
+    for color in STICKER_COLORS
+}
+
+
+def get_sticker_inventory_style(style):
+    style_text = str(style).strip().lower().replace(" ", "")
+
+    if "lsds" in style_text:
+        return "lsds"
+
+    for sticker_style in STICKER_STYLES:
+        if sticker_style in style_text:
+            return sticker_style
+
+    return None
+
+
+def normalize_sticker_inventory_color(color):
+    color_text = " ".join(
+        str(color).strip().lower().split()
+    )
+
+    if color_text in STICKER_COLORS:
+        return color_text
+
+    if color_text in STICKER_COLOR_BY_NAME:
+        return STICKER_COLOR_BY_NAME[color_text]
+
+    numbered_match = re.match(
+        r"^([1-8])\s+(.+)$",
+        color_text,
+    )
+
+    if numbered_match:
+        normalized = (
+            f"{numbered_match.group(1)} "
+            f"{numbered_match.group(2)}"
+        )
+        if normalized in STICKER_COLORS:
+            return normalized
+
+    stock_color = normalize_stock_inventory_color(color)
+    stock_color_text = " ".join(
+        str(stock_color).strip().lower().split()
+    )
+
+    if stock_color_text in STICKER_COLORS:
+        return stock_color_text
+
+    return None
+
 
 def deduct_lsds_stock_inventory(report_rows, db):
     lines_updated = 0
@@ -1062,6 +1134,78 @@ def deduct_lsds_stock_inventory(report_rows, db):
     }
 
 
+def deduct_sticker_inventory(report_rows, db):
+    lines_updated = 0
+    total_qty_deducted = 0
+    deductions = []
+
+    for row in report_rows:
+        style = get_sticker_inventory_style(
+            row.get("style", "")
+        )
+
+        if not style:
+            continue
+
+        color = normalize_sticker_inventory_color(
+            row.get("color", "")
+        )
+
+        if not color:
+            continue
+
+        qty = _safe_int(
+            row.get(
+                "need_from_stock",
+                row.get("stock_inventory", 0),
+            )
+        )
+
+        if qty <= 0:
+            continue
+
+        sticker_row = db.query(StickerInventory).filter(
+            StickerInventory.style == style,
+            StickerInventory.color == color,
+        ).first()
+
+        if not sticker_row:
+            sticker_row = StickerInventory(
+                style=style,
+                color=color,
+                qty=0,
+            )
+            db.add(sticker_row)
+            db.flush()
+
+        previous_qty = _safe_int(sticker_row.qty)
+        deducted_qty = min(
+            previous_qty,
+            qty,
+        )
+        sticker_row.qty = max(
+            previous_qty - qty,
+            0,
+        )
+
+        lines_updated += 1
+        total_qty_deducted += deducted_qty
+
+        deductions.append({
+            "style": style,
+            "color": color,
+            "requested_qty": qty,
+            "deducted_qty": deducted_qty,
+            "remaining_qty": sticker_row.qty,
+        })
+
+    return {
+        "lines_updated": lines_updated,
+        "total_qty_deducted": total_qty_deducted,
+        "deductions": deductions,
+    }
+
+
 def seed_stock_inventory_if_empty(db):
     has_rows = db.query(
         StockInventory.id
@@ -1124,6 +1268,27 @@ def seed_stock_inventory_if_empty(db):
                         qty=qty,
                     )
                 )
+
+    db.commit()
+
+
+def seed_sticker_inventory_if_empty(db):
+    has_rows = db.query(
+        StickerInventory.id
+    ).first()
+
+    if has_rows:
+        return
+
+    for style in STICKER_STYLES:
+        for color in STICKER_COLORS:
+            db.add(
+                StickerInventory(
+                    style=style,
+                    color=color,
+                    qty=0,
+                )
+            )
 
     db.commit()
 
@@ -1810,6 +1975,78 @@ def update_stock_inventory_qty(
     finally:
         db.close()
 
+
+@router.get("/sticker-inventory")
+def list_sticker_inventory(search: Optional[str] = Query(None)):
+    db: Session = SessionLocal()
+    try:
+        seed_sticker_inventory_if_empty(db)
+
+        q = db.query(StickerInventory)
+
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            q = q.filter(
+                or_(
+                    StickerInventory.style.ilike(term),
+                    StickerInventory.color.ilike(term),
+                )
+            )
+
+        rows = (
+            q.order_by(
+                StickerInventory.style.asc(),
+                StickerInventory.color.asc(),
+            )
+            .all()
+        )
+        return {
+            "count": len(rows),
+            "rows": [
+                {
+                    "id": row.id,
+                    "style": row.style,
+                    "color": row.color,
+                    "qty": row.qty,
+                }
+                for row in rows
+            ],
+        }
+    finally:
+        db.close()
+
+
+@router.patch("/sticker-inventory/{inventory_id}")
+def update_sticker_inventory_qty(
+    inventory_id: int,
+    body: StickerInventoryUpdate,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+):
+    if not _admin_key_valid(x_admin_key):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or missing admin key. Set X-Admin-Key header "
+            "to match ADMIN_API_KEY (default dev key: dev-admin).",
+        )
+    db: Session = SessionLocal()
+    try:
+        row = db.query(StickerInventory).filter(
+            StickerInventory.id == inventory_id
+        ).first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Inventory row not found")
+        row.qty = body.qty
+        db.commit()
+        db.refresh(row)
+        return {
+            "id": row.id,
+            "style": row.style,
+            "color": row.color,
+            "qty": row.qty,
+        }
+    finally:
+        db.close()
+
 # =====================================
 # FINAL COMBINED REPORT
 # =====================================
@@ -2071,6 +2308,8 @@ def _collect_marketplace_orders(
                 filter_meesho_orders
             )
         )
+        print("MEESHO SAMPLE")
+        print(meesho_orders[:5])
         platform_orders["Meesho"] = meesho_orders
 
         all_orders.extend(
@@ -2111,6 +2350,8 @@ def export_final_report(
     meesho_file: UploadFile = File(None),
 
     myntra_file: UploadFile = File(None),
+
+    include_detail_columns: bool = Form(True),
 ):
 
     all_orders, platform_orders = _collect_marketplace_orders(
@@ -2188,6 +2429,10 @@ def export_final_report(
             stock_deduction_report,
             db
         )
+        deduct_sticker_inventory(
+            stock_deduction_report,
+            db
+        )
         deduct_return_inventory(
             deduction_inventory,
             db
@@ -2211,11 +2456,11 @@ def export_final_report(
 
     now = datetime.now()
     timestamp = now.strftime(
-        "%Y%m%d_%H%M%S"
+        "%d-%m-%Y_%H%M"
     )
-    today_date = now.strftime("%Y%m%d")
+    today_date = now.strftime("%d-%m-%Y")
     generated_at = now.strftime(
-        "%d-%m-%Y %I:%M:%S %p"
+        "%d-%m-%Y %I:%M %p"
     )
 
     output_file = (
@@ -2255,8 +2500,11 @@ def export_final_report(
         size for size in size_order
         if size in available_sizes
     ]
-    total_columns = 2 + (len(available_sizes) * 3)
+    columns_per_size = 3 if include_detail_columns else 1
+    total_columns = 2 + (len(available_sizes) * columns_per_size)
     last_column = get_column_letter(max(total_columns, 2))
+    header_end_row = 3 if include_detail_columns else 2
+    data_start_row = header_end_row + 1
 
     ws.title = "Final Report"
     ws.merge_cells(f"A1:{last_column}1")
@@ -2270,43 +2518,48 @@ def export_final_report(
     sub_headers = ["", ""]
 
     for size in available_sizes:
-        headers.extend([size, "", ""])
-        sub_headers.extend([
-            "Total Order",
-            "Return Stock",
-            "Need to Print"
-        ])
+        if include_detail_columns:
+            headers.extend([size, "", ""])
+            sub_headers.extend([
+                "Total Order",
+                "Return Stock",
+                "Need to Print"
+            ])
+        else:
+            headers.append(size)
 
     ws.append(headers)
-    ws.append(sub_headers)
 
-    ws.merge_cells("A2:A3")
-    ws.merge_cells("B2:B3")
+    if include_detail_columns:
+        ws.append(sub_headers)
 
-    for index, _ in enumerate(available_sizes):
-        start_col = 3 + (index * 3)
-        end_col = start_col + 2
-        ws.merge_cells(
-            f"{get_column_letter(start_col)}2:{get_column_letter(end_col)}2"
-        )
+        ws.merge_cells("A2:A3")
+        ws.merge_cells("B2:B3")
+
+        for index, _ in enumerate(available_sizes):
+            start_col = 3 + (index * columns_per_size)
+            end_col = start_col + columns_per_size - 1
+            ws.merge_cells(
+                f"{get_column_letter(start_col)}2:{get_column_letter(end_col)}2"
+            )
 
     # =====================
     # STYLES
     # =====================
 
     header_fill = PatternFill(
-        start_color="1F4E78",
-        end_color="1F4E78",
+        start_color="213A69",
+        end_color="213A69",
         fill_type="solid"
     )
 
     header_font = Font(
         bold=True,
         color="FFFFFF",
-        size=13,
+        size=14,
     )
 
-    data_font = Font(size=12)
+    data_font = Font(size=12 )
 
     center_align = Alignment(
         horizontal="center",
@@ -2315,10 +2568,9 @@ def export_final_report(
     )
 
     thin_border = Border(
-        left=Side(style="thin"),
-        right=Side(style="thin"),
-        top=Side(style="thin"),
-        bottom=Side(style="thin")
+        left=Side(style="thin", color="FFFFFF"),
+        right=Side(style="thin", color="FFFFFF"),
+        bottom=Side(style="thin", color="FFFFFF")
     )
 
     timestamp_fill = PatternFill(
@@ -2328,8 +2580,20 @@ def export_final_report(
     )
 
     subtotal_fill = PatternFill(
-        start_color="5B9BD5",
-        end_color="5B9BD5",
+        start_color="213A69",
+        end_color="213A69",
+        fill_type="solid"
+    )
+
+    table_light_fill = PatternFill(
+        start_color="7A9BD6",
+        end_color="7A9BD6",
+        fill_type="solid"
+    )
+
+    table_lighter_fill = PatternFill(
+        start_color="ABC4EA",
+        end_color="ABC4EA",
         fill_type="solid"
     )
 
@@ -2346,12 +2610,11 @@ def export_final_report(
         horizontal="center",
         vertical="center",
     )
-    ws["A1"].border = thin_border
     ws.row_dimensions[1].height = 18
 
     for row in ws.iter_rows(
         min_row=2,
-        max_row=3,
+        max_row=header_end_row,
         min_col=1,
         max_col=max(total_columns, 2)
     ):
@@ -2364,7 +2627,6 @@ def export_final_report(
 
             cell.alignment = center_align
 
-            cell.border = thin_border
 
     # =====================
     # GROUP DATA
@@ -2398,7 +2660,7 @@ def export_final_report(
 
     def add_style_subtotal_row(style_name):
         subtotal_row = [
-            style_name,
+            "Total",
             ""
         ]
 
@@ -2414,31 +2676,35 @@ def export_final_report(
 
             subtotal_row.extend([
                 (
-                    "-"
+                    " "
                     if totals["total_order_qty"] == 0
                     else totals["total_order_qty"]
-                ),
-                (
-                    "-"
-                    if totals["return_qty"] == 0
-                    else totals["return_qty"]
-                ),
-                (
-                    "-"
-                    if totals["stock_qty"] == 0
-                    else totals["stock_qty"]
-                ),
+                )
             ])
+
+            if include_detail_columns:
+                subtotal_row.extend([
+                    (
+                        " "
+                        if totals["return_qty"] == 0
+                        else totals["return_qty"]
+                    ),
+                    (
+                        " "
+                        if totals["stock_qty"] == 0
+                        else totals["stock_qty"]
+                    ),
+                ])
 
         ws.append(subtotal_row)
 
         subtotal_row_number = ws.max_row
+        subtotal_rows.add(subtotal_row_number)
 
         for cell in ws[subtotal_row_number]:
             cell.fill = subtotal_fill
             cell.font = subtotal_font
             cell.alignment = center_align
-            cell.border = thin_border
 
     for (style, color), sizes in grouped_data.items():
 
@@ -2454,9 +2720,7 @@ def export_final_report(
             }
 
         elif style != current_style:
-            add_style_subtotal_row(current_style)
-            ws.append([])
-            blank_rows.add(ws.max_row)
+            add_style_subtotal_row(current_style)        
 
             current_style = style
             style_totals = {
@@ -2504,28 +2768,26 @@ def export_final_report(
                         "-"
                         if total_qty == 0
                         else total_qty
-                    ),
-
-                    (
-                        "-"
-                        if return_qty == 0
-                        else return_qty
-                    ),
-
-                    (
-                        "-"
-                        if stock_qty == 0
-                        else stock_qty
                     )
                 ])
 
-            else:
+                if include_detail_columns:
+                    row.extend([
+                        (
+                            "-"
+                            if return_qty == 0
+                            else return_qty
+                        ),
 
-                row.extend([
-                    "-",
-                    "-",
-                    "-"
-                ])
+                        (
+                            "-"
+                            if stock_qty == 0
+                            else stock_qty
+                        )
+                    ])
+
+            else:
+                row.extend(["-"] * columns_per_size)
 
         ws.append(row)
 
@@ -2590,18 +2852,9 @@ def export_final_report(
     # DATA CELL STYLE
     # =====================
 
-    return_fill = PatternFill(
-
-    start_color="FFF3CD",
-
-    end_color="FFF3CD",
-
-    fill_type="solid"
-    )
-
     for row in ws.iter_rows(
 
-        min_row=4,
+        min_row=data_start_row,
 
         max_row=ws.max_row,
 
@@ -2624,44 +2877,10 @@ def export_final_report(
                 continue
 
             cell.font = data_font
-
-            # =====================
-            # HIGHLIGHT RETURN QTY
-            # =====================
-
-            if (
-
-                "Used Return Qty"
-
-                in str(
-                    ws.cell(
-                        row=3,
-                        column=cell.column
-                    ).value
-                )
-
-            ):
-
-                if (
-
-                    cell.value not in [
-                        None,
-                        "",
-                        "-",
-                        0
-                    ]
-
-                ):
-
-                    try:
-
-                        if int(cell.value) > 0:
-
-                            cell.fill = return_fill
-
-                    except:
-
-                        pass
+            if (cell.row - data_start_row) % 2 == 0:
+                cell.fill = table_light_fill
+            else:
+                cell.fill = table_lighter_fill
 
     wb.save(output_file)
     db.close()
@@ -2783,7 +3002,10 @@ def stock_alerts(
     db: Session = SessionLocal()
 
     try:
-        rows = (
+        seed_stock_inventory_if_empty(db)
+        seed_sticker_inventory_if_empty(db)
+
+        stock_rows = (
             db.query(StockInventory)
             .filter(
                 StockInventory.qty < threshold
@@ -2797,19 +3019,50 @@ def stock_alerts(
             .all()
         )
 
+        sticker_rows = (
+            db.query(StickerInventory)
+            .filter(
+                StickerInventory.qty < threshold
+            )
+            .order_by(
+                StickerInventory.qty.asc(),
+                StickerInventory.style.asc(),
+                StickerInventory.color.asc(),
+            )
+            .all()
+        )
+
+        stock_items = [
+            {
+                "id": row.id,
+                "style": row.style,
+                "color": row.color,
+                "size": row.size,
+                "qty": row.qty,
+                "type": "piece",
+            }
+            for row in stock_rows
+        ]
+
+        sticker_items = [
+            {
+                "id": row.id,
+                "style": row.style,
+                "color": row.color,
+                "qty": row.qty,
+                "type": "sticker",
+            }
+            for row in sticker_rows
+        ]
+
         return {
-            "count": len(rows),
+            "count": len(stock_items) + len(sticker_items),
+            "stock_count": len(stock_items),
+            "sticker_count": len(sticker_items),
             "threshold": threshold,
-            "items": [
-                {
-                    "id": row.id,
-                    "style": row.style,
-                    "color": row.color,
-                    "size": row.size,
-                    "qty": row.qty,
-                }
-                for row in rows
-            ],
+            "items": stock_items + sticker_items,
+            "stock_items": stock_items,
+            "sticker_items": sticker_items,
         }
 
     finally:

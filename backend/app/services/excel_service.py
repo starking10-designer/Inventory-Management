@@ -157,13 +157,17 @@ def filter_flipkart_orders(file_path):
         for col in df.columns
     ]
 
-    current_hour = datetime.now().hour
+    now = datetime.now()
+    current_hour = now.hour
 
     if current_hour < 12:
-        target_date = datetime.now()
+        target_date = now
 
     else:
-        target_date = datetime.now() + timedelta(days=1)
+        target_date = now + timedelta(days=1)
+
+        if target_date.weekday() == 6:
+            target_date = target_date + timedelta(days=1)
 
     target_date = target_date.strftime("%Y-%m-%d")
 
@@ -287,7 +291,7 @@ def filter_meesho_orders(file_path):
     enriched_df = enrich_order_rows(
         filtered_df,
         "suborderno",
-        "supplierdiscountedprice(inclgstandcommission)",
+        "supplierdiscountedprice(inclgstandcommision)",
         meesho_fee=55
     )
 
@@ -320,7 +324,7 @@ def filter_myntra_orders(file_path):
     for _, row in df.iterrows():
 
         sku = str(
-            row.get("sellerskucode", "")
+            row.get("seller_sku_code", "")
         ).strip()
 
         qty = 1
@@ -593,10 +597,8 @@ _NUMBERED_COLORS = {
     "olive": "8 olive",
     "cream": "9 cream",
     "grey melange": "10 grey melange",
-    "gray melange": "10 grey melange",
     "charcoal melange": "11 charcoal melange",
     "dark grey": "12 dark grey",
-    "dark gray": "12 dark grey",
 }
 
 
@@ -745,10 +747,7 @@ def deduct_return_inventory(expanded_inventory, db):
 
 
 def read_return_orders_csv(file_path):
-    """
-    Read a returns CSV with normalized headers.
-    Maps common marketplace column names to sku + quantity.
-    """
+   
 
     df = pd.read_csv(file_path)
 

@@ -10,6 +10,7 @@ import {
   Printer,
   Trash2,
   AlertTriangle,
+  Tag,
 } from "lucide-react";
 import { API_BASE } from "./api.js";
 import SalesSection from "./components/SalesSection.jsx";
@@ -65,6 +66,7 @@ function App() {
   const returnsFileInputRef = useRef(null);
   const [returnsUploading, setReturnsUploading] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
+  const [showFinalReportDetails, setShowFinalReportDetails] = useState(false);
 
   const marketplaceFiles = () => ({
     flipkart: flipkartFile,
@@ -120,7 +122,7 @@ function App() {
     const link = document.createElement("a");
     link.href = url;
     const today = new Date();
-    const datePart = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+    const datePart = `${String(today.getDate()).padStart(2, "0")}-${String(today.getMonth() + 1).padStart(2, "0")}-${today.getFullYear()}`;
     link.setAttribute("download", `final_report_${datePart}.xlsx`);
     document.body.appendChild(link);
     link.click();
@@ -138,6 +140,10 @@ function App() {
     setReportBusy(true);
     try {
       const formData = buildMarketplaceFormData(files);
+      formData.append(
+        "include_detail_columns",
+        showFinalReportDetails ? "true" : "false",
+      );
       const response = await axios.post(
         `${API_BASE}/export-final-report`,
         formData,
@@ -315,8 +321,9 @@ function App() {
   const [alerts, setAlerts] = useState({
     count: 0,
     items: [],
+    stock_count: 0,
+    sticker_count: 0,
   });
-
   const [showLowStockModal, setShowLowStockModal] = useState(false);
 
   const loadStockAlerts = async () => {
@@ -326,6 +333,8 @@ function App() {
       setAlerts({
         count: response.data.count || 0,
         items: response.data.items || [],
+        stock_count: response.data.stock_count || 0,
+        sticker_count: response.data.sticker_count || 0,
       });
     } catch (error) {
       console.error("Failed to load stock alerts", error);
@@ -356,7 +365,10 @@ function App() {
 
       <div className="max-w-7xl mx-auto p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
-          <div className="rounded-3xl bg-white/55 p-5 backdrop-blur-xl shadow-sm">
+          <Link
+            to="/low-stock"
+            className="group rounded-3xl bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-red-300 hover:bg-red-50/40 border border-white/80"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-500 text-sm">Low Stock Alerts</p>
@@ -372,26 +384,24 @@ function App() {
             </div>
 
             <div className="mt-4 space-y-1">
+              <div className="text-xs text-slate-600">
+                Pieces: {alerts.stock_count} | Stickers: {alerts.sticker_count}
+              </div>
               {alerts.items.slice(0, 3).map((item) => (
                 <div
-                  key={`${item.style}-${item.color}-${item.size}`}
+                  key={`${item.type}-${item.style}-${item.color}-${item.size ?? "sticker"}`}
                   className="text-xs text-red-600"
                 >
-                  {item.style} | {item.color} | {item.size} ({item.qty})
+                  {item.style} | {item.color}
+                  {item.size ? ` | ${item.size}` : ""} ({item.qty})
                 </div>
               ))}
 
-              {alerts.count > 3 && (
-                <button
-                  type="button"
-                  onClick={() => setShowLowStockModal(true)}
-                  className="text-xs text-indigo-600 font-medium pt-1 hover:underline"
-                >
-                  View all items
-                </button>
-              )}
+              <span className="inline-flex items-center text-xs text-indigo-600 font-medium pt-1 group-hover:underline">
+                Open detailed view
+              </span>
             </div>
-          </div>
+          </Link>
           <div className="rounded-3xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm">
             <div className="mb-4">
               <h2 className="text-base font-semibold">SKU Master</h2>
@@ -442,7 +452,7 @@ function App() {
 
         <SalesSection />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
           <Link
             to="/daily-report"
             className="group flex flex-col rounded-2xl border border-white/80 bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/40"
@@ -524,7 +534,35 @@ function App() {
               />
             </div>
             <span className="mt-4 inline-flex items-center text-sm font-semibold text-indigo-700">
-              Open stock view
+              Open detailed view
+            </span>
+          </Link>
+
+          <Link
+            to="/sticker-inventory"
+            className="group flex flex-col rounded-2xl border border-white/80 bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-emerald-300 hover:bg-fuchsia-50/40"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                  <Tag className="text-emerals-600" size={22} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Sticker inventory
+                  </h2>
+                  <p className="text-slate-500 text-sm mt-1">
+                    LSDS and SN sticker stock by numbered color.
+                  </p>
+                </div>
+              </div>
+              <ChevronRight
+                className="text-slate-400 group-hover:text-fuchsia-600 shrink-0 mt-1"
+                size={22}
+              />
+            </div>
+            <span className="mt-4 inline-flex items-center text-sm font-semibold text-emerald-700">
+              Open detailed view
             </span>
           </Link>
         </div>
@@ -601,6 +639,17 @@ function App() {
               >
                 {reportBusy ? "Generating…" : "Generate Final Report"}
               </button>
+              <label className="flex items-center gap-2 rounded-xl border border-white/80 bg-white/55 px-3 py-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-indigo-600"
+                  checked={showFinalReportDetails}
+                  onChange={(event) =>
+                    setShowFinalReportDetails(event.target.checked)
+                  }
+                />
+                Detail columns
+              </label>
               <button
                 type="button"
                 title="Print report (upload files first)"

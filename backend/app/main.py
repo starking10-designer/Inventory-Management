@@ -22,6 +22,10 @@ from app.models.stock_inventory import (
     StockInventory
 )
 
+from app.models.sticker_inventory import (
+    StickerInventory
+)
+
 from app.models.daily_report import (
     DailyReport
 )
