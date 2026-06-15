@@ -11,6 +11,7 @@ import {
   Trash2,
   AlertTriangle,
   Tag,
+  TrendingUp,
 } from "lucide-react";
 import { API_BASE } from "./api.js";
 import SalesSection from "./components/SalesSection.jsx";
@@ -153,6 +154,7 @@ function App() {
       await clearPendingMarketplaceFiles();
       await clearConfirmationMarketplaceFiles();
       clearMarketplaceFileState();
+      loadSalesSummary();
     } catch (error) {
       console.error(error);
       alert(await getUploadErrorMessage(error, "Failed to generate report"));
@@ -178,6 +180,7 @@ function App() {
       printFinalReport(data.report, {
         generatedAt: new Date().toLocaleString("en-IN", { hour12: true }),
       });
+      loadSalesSummary();
     } catch (error) {
       console.error(error);
       alert(
@@ -325,6 +328,10 @@ function App() {
     sticker_count: 0,
   });
   const [showLowStockModal, setShowLowStockModal] = useState(false);
+  const [salesSummary, setSalesSummary] = useState({
+    count: 0,
+    reports: [],
+  });
 
   const loadStockAlerts = async () => {
     try {
@@ -341,8 +348,21 @@ function App() {
     }
   };
 
+  const loadSalesSummary = async () => {
+    try {
+      const { data } = await axios.get(`${API_BASE}/sales-reports`);
+      setSalesSummary({
+        count: data.count || 0,
+        reports: data.reports || [],
+      });
+    } catch (error) {
+      console.error("Failed to load sales summary", error);
+    }
+  };
+
   useEffect(() => {
     loadStockAlerts();
+    loadSalesSummary();
   }, []);
 
   return (
@@ -364,7 +384,7 @@ function App() {
       </div>
 
       <div className="max-w-7xl mx-auto p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mb-8">
           <Link
             to="/low-stock"
             className="group rounded-3xl bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-red-300 hover:bg-red-50/40 border border-white/80"
@@ -396,6 +416,46 @@ function App() {
                   {item.size ? ` | ${item.size}` : ""} ({item.qty})
                 </div>
               ))}
+
+              <span className="inline-flex items-center text-xs text-indigo-600 font-medium pt-1 group-hover:underline">
+                Open detailed view
+              </span>
+            </div>
+          </Link>
+          <Link
+            to="/sales-reports"
+            className="group rounded-3xl bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-violet-300 hover:bg-violet-50/40 border border-white/80"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-500 text-sm">Daily Sales Reports</p>
+
+                <h2 className="text-3xl font-bold text-violet-600 mt-1">
+                  {salesSummary.count}
+                </h2>
+              </div>
+
+              <div className="w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center">
+                <TrendingUp size={28} className="text-violet-600" />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-1">
+              {salesSummary.reports.slice(0, 3).map((report) => (
+                <div
+                  key={report.report_date}
+                  className="text-xs text-violet-700"
+                >
+                  {report.report_date} · {report.total_piece_qty} pcs ·{" "}
+                  {report.platform_count} platform
+                  {report.platform_count === 1 ? "" : "s"}
+                </div>
+              ))}
+              {salesSummary.count === 0 && (
+                <div className="text-xs text-slate-500">
+                  No saved sales reports yet
+                </div>
+              )}
 
               <span className="inline-flex items-center text-xs text-indigo-600 font-medium pt-1 group-hover:underline">
                 Open detailed view

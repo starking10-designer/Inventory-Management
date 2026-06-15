@@ -811,6 +811,76 @@ def delete_daily_report(
         db.close()
 
 
+@router.get("/sales-reports")
+def list_sales_reports():
+    db: Session = SessionLocal()
+
+    try:
+        rows = (
+            db.query(DailySalesReport)
+            .order_by(
+                DailySalesReport.report_date.desc(),
+                DailySalesReport.platform.asc(),
+            )
+            .all()
+        )
+
+        by_date = {}
+
+        for row in rows:
+            date_key = str(row.report_date)
+
+            if date_key not in by_date:
+                by_date[date_key] = {
+                    "report_date": date_key,
+                    "platforms": [],
+                    "total_orders": 0,
+                    "total_piece_qty": 0,
+                    "total_invoice_amount": 0.0,
+                }
+
+            entry = by_date[date_key]
+            platform_summary = {
+                "platform": row.platform,
+                "total_orders": int(row.total_orders or 0),
+                "total_piece_qty": int(
+                    row.total_piece_qty or 0
+                ),
+                "total_invoice_amount": round(
+                    float(row.total_invoice_amount or 0),
+                    2,
+                ),
+            }
+            entry["platforms"].append(platform_summary)
+            entry["total_orders"] += platform_summary[
+                "total_orders"
+            ]
+            entry["total_piece_qty"] += platform_summary[
+                "total_piece_qty"
+            ]
+            entry["total_invoice_amount"] += platform_summary[
+                "total_invoice_amount"
+            ]
+
+        reports = []
+
+        for date_key in sorted(by_date.keys(), reverse=True):
+            entry = by_date[date_key]
+            entry["total_invoice_amount"] = round(
+                entry["total_invoice_amount"],
+                2,
+            )
+            entry["platform_count"] = len(entry["platforms"])
+            reports.append(entry)
+
+        return {
+            "count": len(reports),
+            "reports": reports,
+        }
+    finally:
+        db.close()
+
+
 @router.get("/sales-analytics")
 def sales_analytics(
     report_date: str = Query(None),
