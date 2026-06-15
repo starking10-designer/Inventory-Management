@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import re
 
 from app.models.sku_master import SKUMaster
@@ -148,6 +148,20 @@ def read_sku_sheet(file_path, sheet_name):
 # PLATFORM FILTERS
 # =========================
 
+def get_flipkart_target_date() -> date:
+    now = datetime.now()
+    current_hour = now.hour
+
+    if current_hour < 12:
+        target_date = now.date()
+    else:
+        target_date = (now + timedelta(days=1)).date()
+        if target_date.weekday() == 6:
+            target_date = target_date + timedelta(days=1)
+
+    return target_date
+
+
 def filter_flipkart_orders(file_path):
 
     df = pd.read_csv(file_path)
@@ -157,19 +171,7 @@ def filter_flipkart_orders(file_path):
         for col in df.columns
     ]
 
-    now = datetime.now()
-    current_hour = now.hour
-
-    if current_hour < 12:
-        target_date = now
-
-    else:
-        target_date = now + timedelta(days=1)
-
-        if target_date.weekday() == 6:
-            target_date = target_date + timedelta(days=1)
-
-    target_date = target_date.strftime("%Y-%m-%d")
+    target_date = get_flipkart_target_date().strftime("%Y-%m-%d")
 
     df["dispatchbydate"] = pd.to_datetime(
         df["dispatchbydate"],

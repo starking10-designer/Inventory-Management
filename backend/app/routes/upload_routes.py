@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Header, Form
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi import Depends
 from pydantic import BaseModel, Field
@@ -39,6 +39,7 @@ from app.services.excel_service import (
     read_sku_sheet,
 
     filter_flipkart_orders,
+    get_flipkart_target_date,
     filter_amazon_orders,
     filter_ajio_orders,
     filter_meesho_orders,
@@ -315,10 +316,14 @@ def _save_new_platform_sales(
 
     for platform_name, orders in platform_orders.items():
         upload_file = platform_files.get(platform_name)
+        platform_report_date = _platform_report_date(
+            platform_name,
+            report_date,
+        )
 
         if not upload_file or not _count_sales_upload_once(
             db,
-            report_date,
+            platform_report_date,
             platform_name,
             upload_file
         ):
@@ -336,13 +341,13 @@ def _save_new_platform_sales(
         )
         save_daily_report_rows(
             db,
-            report_date,
+            platform_report_date,
             platform_name,
             platform_report
         )
         save_daily_sales_summary(
             db,
-            report_date,
+            platform_report_date,
             platform_name,
             orders,
             sum(
@@ -353,6 +358,85 @@ def _save_new_platform_sales(
         counted_platforms.append(platform_name)
 
     return counted_platforms, skipped_platforms
+
+
+def _platform_report_date(
+    platform_name: str,
+    default_report_date: date,
+) -> date:
+    if platform_name == "Flipkart":
+        return get_flipkart_target_date()
+    return default_report_date
+
+
+def _report_dates_for_view(view_date: date) -> list[date]:
+    today = datetime.now().date()
+    dispatch_date = get_flipkart_target_date()
+    session_dates = {today, dispatch_date}
+
+    dates = {view_date}
+    if view_date in session_dates:
+        dates.update(session_dates)
+
+    return sorted(dates)
+
+
+def _daily_report_query(db: Session, report_date, platform):
+    query = db.query(DailyReport)
+
+    if not report_date:
+        if platform == "All":
+            query = query.filter(
+                DailyReport.platform != "All"
+            )
+        elif platform:
+            query = query.filter(
+                DailyReport.platform == platform
+            )
+        return query
+
+    if platform == "All" or not platform:
+        conditions = [
+            and_(
+                DailyReport.platform == platform_name,
+                DailyReport.report_date.in_(
+                    _report_dates_for_view(report_date)
+                ),
+            )
+            for platform_name in PLATFORM_NAMES
+        ]
+        return query.filter(or_(*conditions))
+
+    return query.filter(
+        DailyReport.platform == platform,
+        DailyReport.report_date.in_(
+            _report_dates_for_view(report_date)
+        ),
+    )
+
+
+def _sales_row_for_platform(
+    db: Session,
+    platform_name: str,
+    view_date: date,
+):
+    dates = _report_dates_for_view(view_date)
+    rows = (
+        db.query(DailySalesReport)
+        .filter(
+            DailySalesReport.platform == platform_name,
+            DailySalesReport.report_date.in_(dates),
+        )
+        .order_by(
+            DailySalesReport.report_date.desc()
+        )
+        .all()
+    )
+
+    if not rows:
+        return None
+
+    return rows[0]
 
 
 # =====================================
@@ -367,30 +451,25 @@ def get_daily_report(
     db: Session = SessionLocal()
 
     try:
-        query = db.query(DailyReport)
-
+        parsed_date = None
         if report_date:
             parsed_date = _parse_report_date(report_date)
-            query = query.filter(
-                DailyReport.report_date == parsed_date
-            )
 
-        if platform == "All":
-            query = query.filter(
-                DailyReport.platform != "All"
+        rows = (
+            _daily_report_query(
+                db,
+                parsed_date,
+                platform or "All",
             )
-        elif platform:
-            query = query.filter(
-                DailyReport.platform == platform
+            .order_by(
+                DailyReport.report_date.desc(),
+                DailyReport.platform.asc(),
+                DailyReport.style.asc(),
+                DailyReport.color.asc(),
+                DailyReport.size.asc()
             )
-
-        rows = query.order_by(
-            DailyReport.report_date.desc(),
-            DailyReport.platform.asc(),
-            DailyReport.style.asc(),
-            DailyReport.color.asc(),
-            DailyReport.size.asc()
-        ).all()
+            .all()
+        )
 
         return {
             "count": len(rows),
@@ -424,26 +503,6 @@ def _parse_report_date(report_date: str):
         status_code=400,
         detail="Invalid date format. Use YYYY-MM-DD or DD-MM-YYYY."
     )
-
-
-def _daily_report_query(db: Session, report_date, platform):
-    query = db.query(DailyReport)
-
-    if report_date:
-        query = query.filter(
-            DailyReport.report_date == report_date
-        )
-
-    if platform == "All":
-        query = query.filter(
-            DailyReport.platform != "All"
-        )
-    elif platform:
-        query = query.filter(
-            DailyReport.platform == platform
-        )
-
-    return query
 
 
 @router.get("/daily-report/export")
@@ -774,18 +833,16 @@ def sales_analytics(
             parsed_date = datetime.now().date()
 
         rows = (
-            db.query(DailyReport)
-            .filter(
-                DailyReport.report_date == parsed_date,
-                DailyReport.platform != "All",
+            _daily_report_query(
+                db,
+                parsed_date,
+                platform or "All",
             )
-            .all()
-        )
-
-        sales_rows = (
-            db.query(DailySalesReport)
-            .filter(
-                DailySalesReport.report_date == parsed_date
+            .order_by(
+                DailyReport.platform.asc(),
+                DailyReport.style.asc(),
+                DailyReport.color.asc(),
+                DailyReport.size.asc(),
             )
             .all()
         )
@@ -799,15 +856,17 @@ def sales_analytics(
             for name in PLATFORM_NAMES
         }
 
-        for sales_row in sales_rows:
-            if sales_row.platform not in sales_summary:
-                sales_summary[sales_row.platform] = {
-                    "total_orders": 0,
-                    "total_piece_qty": 0,
-                    "total_invoice_amount": 0,
-                }
+        for platform_name in PLATFORM_NAMES:
+            sales_row = _sales_row_for_platform(
+                db,
+                platform_name,
+                parsed_date,
+            )
 
-            sales_summary[sales_row.platform] = {
+            if not sales_row:
+                continue
+
+            sales_summary[platform_name] = {
                 "total_orders": int(
                     sales_row.total_orders or 0
                 ),
