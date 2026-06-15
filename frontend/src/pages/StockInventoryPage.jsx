@@ -31,15 +31,11 @@ function pivotStockInventory(rows) {
     }
   }
 
-  const ordered = SIZE_ORDER.filter((s) => sizeSet.has(s));
-  const extra = [...sizeSet]
-    .filter((s) => !SIZE_ORDER.includes(s))
-    .sort();
 
-  return {
-    sizes: [...ordered, ...extra],
-    grouped: Array.from(byKey.values()).sort(
-      (a, b) =>
+    return {
+      sizes: SIZE_ORDER,
+      grouped: Array.from(byKey.values()).sort(
+        (a, b) =>
         a.style.localeCompare(b.style) || a.color.localeCompare(b.color),
     ),
   };

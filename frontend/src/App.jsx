@@ -467,7 +467,7 @@ function App() {
                     Daily order details
                   </h2>
                   <p className="text-slate-500 text-sm mt-1">
-                    Full table: date, platform, style, color, size, quantities.
+                    Platform cards with order details, Excel download, and popup view.
                   </p>
                 </div>
               </div>
@@ -552,7 +552,7 @@ function App() {
                     Sticker inventory
                   </h2>
                   <p className="text-slate-500 text-sm mt-1">
-                    LSDS and SN sticker stock by numbered color.
+                    LSDS01–21 and SN sticker stock by numbered color.
                   </p>
                 </div>
               </div>

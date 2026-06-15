@@ -513,6 +513,199 @@ def export_daily_report(
         db.close()
 
 
+DAILY_REPORT_SIZE_ORDER = [
+    "XS", "S", "M", "L", "XL", "2XL",
+]
+
+
+def _pivot_daily_report_rows(rows):
+    grouped = {}
+    sizes = set()
+
+    for row in rows:
+        size = str(row.size or "").upper().strip()
+        if size:
+            sizes.add(size)
+
+        key = (
+            row.platform,
+            row.style,
+            row.color,
+        )
+
+        if key not in grouped:
+            grouped[key] = {
+                "date": str(row.report_date),
+                "platform": row.platform,
+                "style": row.style,
+                "color": row.color,
+                "sizes": {},
+                "total": 0,
+            }
+
+        qty = int(row.total_order_qty or 0)
+        grouped[key]["sizes"][size] = (
+            grouped[key]["sizes"].get(size, 0) + qty
+        )
+        grouped[key]["total"] += qty
+
+    size_columns = [
+        size
+        for size in DAILY_REPORT_SIZE_ORDER
+        if size in sizes
+    ]
+    size_columns.extend(
+        sorted(
+            size
+            for size in sizes
+            if size not in DAILY_REPORT_SIZE_ORDER
+        )
+    )
+
+    summary = sorted(
+        grouped.values(),
+        key=lambda item: (
+            item["platform"],
+            item["style"],
+            item["color"],
+        ),
+    )
+
+    return summary, size_columns
+
+
+@router.get("/daily-report/export-excel")
+def export_daily_report_excel(
+    report_date: str = Query(None),
+    platform: str = Query(None),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    db: Session = SessionLocal()
+
+    try:
+        parsed_date = None
+        if report_date:
+            parsed_date = _parse_report_date(report_date)
+
+        rows = (
+            _daily_report_query(db, parsed_date, platform)
+            .order_by(
+                DailyReport.platform.asc(),
+                DailyReport.style.asc(),
+                DailyReport.color.asc(),
+                DailyReport.size.asc(),
+            )
+            .all()
+        )
+
+        summary_rows, size_columns = _pivot_daily_report_rows(rows)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Daily Report"
+
+        header_fill = PatternFill(
+            "solid",
+            fgColor="022658",
+        )
+        header_font = Font(
+            bold=True,
+            color="FFFFFF",
+        )
+
+        plat_label = platform or "All"
+        date_label = (
+            str(parsed_date) if parsed_date
+            else "All dates"
+        )
+
+        ws.append(["Daily final order report"])
+        ws.merge_cells(
+            start_row=1,
+            start_column=1,
+            end_row=1,
+            end_column=4 + len(size_columns),
+        )
+        ws["A1"].font = Font(bold=True, size=14)
+        ws.append(["Date", date_label])
+        ws.append(["Platform", plat_label])
+        ws.append([])
+
+        headers = [
+           
+            "Style",
+            "Color",
+            *size_columns,
+            "Total",
+        ]
+        ws.append(headers)
+
+        for cell in ws[ws.max_row]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        for item in summary_rows:
+            ws.append([
+               
+                item["style"],
+                item["color"],
+                *[
+                    item["sizes"].get(size, "")
+                    for size in size_columns
+                ],
+                item["total"],
+            ])
+
+        for column_cells in ws.columns:
+            column_letter = get_column_letter(
+                column_cells[0].column,
+            )
+            max_length = 0
+            for cell in column_cells:
+                if cell.value is not None:
+                    max_length = max(
+                        max_length,
+                        len(str(cell.value)),
+                    )
+            ws.column_dimensions[column_letter].width = min(
+                max(max_length + 2, 10),
+                40,
+            )
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        date_part = (
+            str(parsed_date) if parsed_date
+            else datetime.now().strftime("%d-%m-%Y")
+        )
+        plat_part = (platform or "all").lower()
+        filename = (
+            f"daily_report_{date_part}_{plat_part}.xlsx"
+        )
+
+        return StreamingResponse(
+            buffer,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{filename}"'
+                )
+            },
+        )
+    finally:
+        db.close()
+
+
 @router.delete("/daily-report")
 def delete_daily_report(
     report_date: str = Query(...),
@@ -996,12 +1189,20 @@ STICKER_COLORS = [
     "8 olive",
 ]
 
-STICKER_STYLES = [
-    "lsds",
+LSDS_STICKER_STYLES = [
+    f"lsds{n:02d}"
+    for n in (
+        1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
+    )
+]
+
+SN_STICKER_STYLES = [
     "sn450",
     "sn451",
     "sn452",
 ]
+
+STICKER_STYLES = LSDS_STICKER_STYLES + SN_STICKER_STYLES
 
 STICKER_COLOR_BY_NAME = {
     color.split(" ", 1)[1]: color
@@ -1012,10 +1213,16 @@ STICKER_COLOR_BY_NAME = {
 def get_sticker_inventory_style(style):
     style_text = str(style).strip().lower().replace(" ", "")
 
-    if "lsds" in style_text:
-        return "lsds"
+    lsds_match = re.search(
+        r"lsds(\d+)",
+        style_text,
+    )
+    if lsds_match:
+        normalized = f"lsds{int(lsds_match.group(1)):02d}"
+        if normalized in LSDS_STICKER_STYLES:
+            return normalized
 
-    for sticker_style in STICKER_STYLES:
+    for sticker_style in SN_STICKER_STYLES:
         if sticker_style in style_text:
             return sticker_style
 
@@ -1272,25 +1479,39 @@ def seed_stock_inventory_if_empty(db):
     db.commit()
 
 
-def seed_sticker_inventory_if_empty(db):
-    has_rows = db.query(
-        StickerInventory.id
-    ).first()
+def ensure_sticker_inventory(db):
+    legacy_rows = db.query(StickerInventory).filter(
+        StickerInventory.style == "lsds",
+    ).all()
 
-    if has_rows:
-        return
+    if legacy_rows:
+        for row in legacy_rows:
+            db.delete(row)
+        db.flush()
 
+    existing = {
+        (row.style, row.color)
+        for row in db.query(
+            StickerInventory.style,
+            StickerInventory.color,
+        ).all()
+    }
+
+    added = False
     for style in STICKER_STYLES:
         for color in STICKER_COLORS:
-            db.add(
-                StickerInventory(
-                    style=style,
-                    color=color,
-                    qty=0,
+            if (style, color) not in existing:
+                db.add(
+                    StickerInventory(
+                        style=style,
+                        color=color,
+                        qty=0,
+                    )
                 )
-            )
+                added = True
 
-    db.commit()
+    if legacy_rows or added:
+        db.commit()
 
 
 # =====================================
@@ -1980,7 +2201,7 @@ def update_stock_inventory_qty(
 def list_sticker_inventory(search: Optional[str] = Query(None)):
     db: Session = SessionLocal()
     try:
-        seed_sticker_inventory_if_empty(db)
+        ensure_sticker_inventory(db)
 
         q = db.query(StickerInventory)
 
@@ -3003,7 +3224,7 @@ def stock_alerts(
 
     try:
         seed_stock_inventory_if_empty(db)
-        seed_sticker_inventory_if_empty(db)
+        ensure_sticker_inventory(db)
 
         stock_rows = (
             db.query(StockInventory)
