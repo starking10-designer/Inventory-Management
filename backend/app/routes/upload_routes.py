@@ -369,16 +369,21 @@ def _platform_report_date(
     return default_report_date
 
 
-def _report_dates_for_view(view_date: date) -> list[date]:
-    today = datetime.now().date()
-    dispatch_date = get_flipkart_target_date()
-    session_dates = {today, dispatch_date}
+def _orders_for_report_date(
+    platform_orders: dict,
+    report_date: date,
+) -> list:
+    orders = []
 
-    dates = {view_date}
-    if view_date in session_dates:
-        dates.update(session_dates)
+    for platform_name, platform_order_list in platform_orders.items():
+        if (
+            _platform_report_date(platform_name, report_date)
+            != report_date
+        ):
+            continue
+        orders.extend(platform_order_list)
 
-    return sorted(dates)
+    return orders
 
 
 def _daily_report_query(db: Session, report_date, platform):
@@ -399,9 +404,7 @@ def _daily_report_query(db: Session, report_date, platform):
         conditions = [
             and_(
                 DailyReport.platform == platform_name,
-                DailyReport.report_date.in_(
-                    _report_dates_for_view(report_date)
-                ),
+                DailyReport.report_date == report_date,
             )
             for platform_name in PLATFORM_NAMES
         ]
@@ -409,9 +412,7 @@ def _daily_report_query(db: Session, report_date, platform):
 
     return query.filter(
         DailyReport.platform == platform,
-        DailyReport.report_date.in_(
-            _report_dates_for_view(report_date)
-        ),
+        DailyReport.report_date == report_date,
     )
 
 
@@ -420,23 +421,14 @@ def _sales_row_for_platform(
     platform_name: str,
     view_date: date,
 ):
-    dates = _report_dates_for_view(view_date)
-    rows = (
+    return (
         db.query(DailySalesReport)
         .filter(
             DailySalesReport.platform == platform_name,
-            DailySalesReport.report_date.in_(dates),
+            DailySalesReport.report_date == view_date,
         )
-        .order_by(
-            DailySalesReport.report_date.desc()
-        )
-        .all()
+        .first()
     )
-
-    if not rows:
-        return None
-
-    return rows[0]
 
 
 # =====================================
@@ -2467,11 +2459,27 @@ def generate_final_report(
 
         report_date = datetime.now().date()
 
+        all_platform_orders = _orders_for_report_date(
+            platform_orders,
+            report_date,
+        )
+        all_platform_aggregated = aggregate_orders(
+            all_platform_orders
+        )
+        all_platform_expanded = expand_inventory(
+            all_platform_aggregated,
+            db
+        )
+        all_platform_report = generate_daily_report(
+            all_platform_expanded,
+            db
+        )
+
         save_daily_report_rows(
             db,
             report_date,
             "All",
-            final_report
+            all_platform_report
         )
 
         counted_platforms, skipped_platforms = _save_new_platform_sales(
@@ -2666,11 +2674,27 @@ def export_final_report(
 
     report_date = datetime.now().date()
 
+    all_platform_orders = _orders_for_report_date(
+        platform_orders,
+        report_date,
+    )
+    all_platform_aggregated = aggregate_orders(
+        all_platform_orders
+    )
+    all_platform_expanded = expand_inventory(
+        all_platform_aggregated,
+        db
+    )
+    all_platform_report = generate_daily_report(
+        all_platform_expanded,
+        db
+    )
+
     save_daily_report_rows(
         db,
         report_date,
         "All",
-        final_report
+        all_platform_report
     )
 
     counted_platforms, _ = _save_new_platform_sales(
