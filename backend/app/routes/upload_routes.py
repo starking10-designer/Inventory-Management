@@ -164,19 +164,36 @@ def save_daily_report_rows(
     platform: str,
     report_rows
 ):
-    db.query(DailyReport).filter(
-        DailyReport.report_date == report_date,
-        DailyReport.platform == platform
-    ).delete()
-
     for row in report_rows:
+        style = str(row.get("style", "")).strip()
+        color = str(row.get("color", "")).strip()
+        size = str(row.get("size", "")).strip()
+        qty = _safe_int(row.get("total_order_qty", 0))
+
+        if qty <= 0:
+            continue
+
+        existing = db.query(DailyReport).filter(
+            DailyReport.report_date == report_date,
+            DailyReport.platform == platform,
+            DailyReport.style == style,
+            DailyReport.color == color,
+            DailyReport.size == size,
+        ).first()
+
+        if existing:
+            existing.total_order_qty = (
+                _safe_int(existing.total_order_qty) + qty
+            )
+            continue
+
         db.add(
             DailyReport(
                 report_date=report_date,
-                style=str(row.get("style", "")).strip(),
-                color=str(row.get("color", "")).strip(),
-                size=str(row.get("size", "")).strip(),
-                total_order_qty=int(row.get("total_order_qty", 0)),
+                style=style,
+                color=color,
+                size=size,
+                total_order_qty=qty,
                 platform=platform
             )
         )
@@ -225,19 +242,37 @@ def save_daily_sales_summary(
         else:
             fallback_order_count += 1
 
-    db.query(DailySalesReport).filter(
+    new_order_count = (
+        len(unique_order_ids)
+        + fallback_order_count
+    )
+
+    existing = db.query(DailySalesReport).filter(
         DailySalesReport.report_date == report_date,
         DailySalesReport.platform == platform
-    ).delete()
+    ).first()
+
+    if existing:
+        existing.total_orders = (
+            _safe_int(existing.total_orders)
+            + new_order_count
+        )
+        existing.total_piece_qty = (
+            _safe_int(existing.total_piece_qty)
+            + mapped_piece_qty
+        )
+        existing.total_invoice_amount = round(
+            float(existing.total_invoice_amount or 0)
+            + total_invoice_amount,
+            2
+        )
+        return
 
     db.add(
         DailySalesReport(
             report_date=report_date,
             platform=platform,
-            total_orders=(
-                len(unique_order_ids)
-                + fallback_order_count
-            ),
+            total_orders=new_order_count,
             total_piece_qty=mapped_piece_qty,
             total_invoice_amount=round(
                 total_invoice_amount,
@@ -271,23 +306,43 @@ def _saved_upload_sha256(upload_file: UploadFile):
     return digest.hexdigest()
 
 
+def _upload_already_counted(
+    db: Session,
+    platform: str,
+    upload_file: UploadFile,
+):
+    if not upload_file:
+        return True
+
+    file_hash = _saved_upload_sha256(upload_file)
+
+    return (
+        db.query(SalesUpload)
+        .filter(
+            SalesUpload.platform == platform,
+            SalesUpload.file_hash == file_hash,
+        )
+        .first()
+        is not None
+    )
+
+
 def _count_sales_upload_once(
     db: Session,
     report_date: date,
     platform: str,
     upload_file: UploadFile
 ):
+    if _upload_already_counted(
+        db,
+        platform,
+        upload_file,
+    ):
+        return False
+
     file_hash = _saved_upload_sha256(
         upload_file
     )
-
-    already_counted = db.query(SalesUpload).filter(
-        SalesUpload.platform == platform,
-        SalesUpload.file_hash == file_hash
-    ).first()
-
-    if already_counted:
-        return False
 
     db.add(
         SalesUpload(
@@ -303,6 +358,40 @@ def _count_sales_upload_once(
     )
 
     return True
+
+
+def _orders_from_new_platform_uploads(
+    db: Session,
+    report_date: date,
+    platform_orders,
+    platform_files,
+):
+    new_orders = []
+    counted_platforms = []
+    skipped_platforms = []
+
+    for platform_name, orders in platform_orders.items():
+        upload_file = platform_files.get(platform_name)
+        platform_report_date = _platform_report_date(
+            platform_name,
+            report_date,
+        )
+
+        if not upload_file:
+            continue
+
+        if _upload_already_counted(
+            db,
+            platform_name,
+            upload_file,
+        ):
+            skipped_platforms.append(platform_name)
+            continue
+
+        new_orders.extend(orders)
+        counted_platforms.append(platform_name)
+
+    return new_orders, counted_platforms, skipped_platforms
 
 
 def _save_new_platform_sales(
@@ -833,15 +922,16 @@ def list_sales_reports():
             if date_key not in by_date:
                 by_date[date_key] = {
                     "report_date": date_key,
-                    "platforms": [],
+                    "platforms": {},
                     "total_orders": 0,
                     "total_piece_qty": 0,
                     "total_invoice_amount": 0.0,
                 }
 
             entry = by_date[date_key]
+            platform_name = row.platform
             platform_summary = {
-                "platform": row.platform,
+                "platform": platform_name,
                 "total_orders": int(row.total_orders or 0),
                 "total_piece_qty": int(
                     row.total_piece_qty or 0
@@ -851,26 +941,46 @@ def list_sales_reports():
                     2,
                 ),
             }
-            entry["platforms"].append(platform_summary)
-            entry["total_orders"] += platform_summary[
-                "total_orders"
-            ]
-            entry["total_piece_qty"] += platform_summary[
-                "total_piece_qty"
-            ]
-            entry["total_invoice_amount"] += platform_summary[
-                "total_invoice_amount"
-            ]
+
+            if platform_name in entry["platforms"]:
+                existing = entry["platforms"][platform_name]
+                existing["total_orders"] += platform_summary[
+                    "total_orders"
+                ]
+                existing["total_piece_qty"] += platform_summary[
+                    "total_piece_qty"
+                ]
+                existing["total_invoice_amount"] = round(
+                    existing["total_invoice_amount"]
+                    + platform_summary["total_invoice_amount"],
+                    2,
+                )
+            else:
+                entry["platforms"][platform_name] = platform_summary
 
         reports = []
 
         for date_key in sorted(by_date.keys(), reverse=True):
             entry = by_date[date_key]
+            platforms = sorted(
+                entry["platforms"].values(),
+                key=lambda item: item["platform"],
+            )
+            entry["platforms"] = platforms
+            entry["total_orders"] = sum(
+                item["total_orders"] for item in platforms
+            )
+            entry["total_piece_qty"] = sum(
+                item["total_piece_qty"] for item in platforms
+            )
             entry["total_invoice_amount"] = round(
-                entry["total_invoice_amount"],
+                sum(
+                    item["total_invoice_amount"]
+                    for item in platforms
+                ),
                 2,
             )
-            entry["platform_count"] = len(entry["platforms"])
+            entry["platform_count"] = len(platforms)
             reports.append(entry)
 
         return {
@@ -3285,7 +3395,7 @@ def confirm_final_report(
     myntra_file: UploadFile = File(None),
 ):
 
-    all_orders, _ = _collect_marketplace_orders(
+    all_orders, platform_orders = _collect_marketplace_orders(
         flipkart_file,
         amazon_file,
         ajio_file,
@@ -3299,20 +3409,53 @@ def confirm_final_report(
             detail="Upload at least one marketplace order file.",
         )
 
-    aggregated_orders = aggregate_orders(all_orders)
-
     db: Session = SessionLocal()
+    report_date = datetime.now().date()
+    platform_files = {
+        "Flipkart": flipkart_file,
+        "Amazon": amazon_file,
+        "Ajio": ajio_file,
+        "Meesho": meesho_file,
+        "Myntra": myntra_file,
+    }
 
     try:
+        new_orders, counted_platforms, skipped_platforms = (
+            _orders_from_new_platform_uploads(
+                db,
+                report_date,
+                platform_orders,
+                platform_files,
+            )
+        )
+
+        if not new_orders:
+            return {
+                "message": (
+                    "No new uploads to confirm. "
+                    "Duplicate files are skipped."
+                ),
+                "lines_updated": 0,
+                "total_qty_deducted": 0,
+                "deductions": [],
+                "counted_platforms": counted_platforms,
+                "skipped_duplicate_platforms": skipped_platforms,
+            }
+
+        aggregated_orders = aggregate_orders(new_orders)
+
         expanded_inventory = expand_inventory(
             aggregated_orders,
             db,
         )
 
-        return deduct_return_inventory(
+        result = deduct_return_inventory(
             expanded_inventory,
             db,
         )
+        result["counted_platforms"] = counted_platforms
+        result["skipped_duplicate_platforms"] = skipped_platforms
+        return result
     finally:
         db.close()
 

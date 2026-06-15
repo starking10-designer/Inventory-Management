@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import { API_BASE } from "../api.js";
@@ -11,13 +11,102 @@ import {
   IndianRupee,
 } from "lucide-react";
 
-const PLATFORM_ACCENTS = {
-  Flipkart: "from-blue-500 to-indigo-600",
-  Amazon: "from-amber-500 to-orange-600",
-  Ajio: "from-rose-500 to-pink-600",
-  Meesho: "from-fuchsia-500 to-purple-600",
-  Myntra: "from-emerald-500 to-teal-600",
+const PLATFORM_BADGES = {
+  Flipkart: "bg-blue-100 text-blue-800",
+  Amazon: "bg-amber-100 text-amber-900",
+  Ajio: "bg-rose-100 text-rose-800",
+  Meesho: "bg-fuchsia-100 text-fuchsia-800",
+  Myntra: "bg-emerald-100 text-emerald-800",
 };
+
+function mergePlatformSummary(target, source) {
+  const existing = target.platforms.find(
+    (item) => item.platform === source.platform,
+  );
+
+  if (existing) {
+    existing.total_orders += Number(source.total_orders || 0);
+    existing.total_piece_qty += Number(source.total_piece_qty || 0);
+    existing.total_invoice_amount += Number(
+      source.total_invoice_amount || 0,
+    );
+    return;
+  }
+
+  target.platforms.push({
+    platform: source.platform,
+    total_orders: Number(source.total_orders || 0),
+    total_piece_qty: Number(source.total_piece_qty || 0),
+    total_invoice_amount: Number(source.total_invoice_amount || 0),
+  });
+}
+
+function recalculateReportTotals(report) {
+  report.total_orders = report.platforms.reduce(
+    (sum, platform) => sum + platform.total_orders,
+    0,
+  );
+  report.total_piece_qty = report.platforms.reduce(
+    (sum, platform) => sum + platform.total_piece_qty,
+    0,
+  );
+  report.total_invoice_amount = report.platforms.reduce(
+    (sum, platform) => sum + platform.total_invoice_amount,
+    0,
+  );
+  report.platform_count = report.platforms.length;
+}
+
+function groupReportsByDate(rawReports) {
+  const byDate = new Map();
+
+  for (const item of rawReports) {
+    const date = item.report_date;
+    if (!date) continue;
+
+    if (!byDate.has(date)) {
+      byDate.set(date, {
+        report_date: date,
+        platforms: [],
+        total_orders: 0,
+        total_piece_qty: 0,
+        total_invoice_amount: 0,
+        platform_count: 0,
+      });
+    }
+
+    const entry = byDate.get(date);
+
+    if (Array.isArray(item.platforms) && item.platforms.length > 0) {
+      for (const platform of item.platforms) {
+        mergePlatformSummary(entry, platform);
+      }
+      continue;
+    }
+
+    if (item.platform) {
+      mergePlatformSummary(entry, item);
+    }
+  }
+
+  return [...byDate.values()]
+    .map((report) => {
+      report.platforms.sort((a, b) =>
+        a.platform.localeCompare(b.platform),
+      );
+      recalculateReportTotals(report);
+      report.total_invoice_amount = Number(
+        report.total_invoice_amount.toFixed(2),
+      );
+      for (const platform of report.platforms) {
+        platform.total_invoice_amount = Number(
+          platform.total_invoice_amount.toFixed(2),
+        );
+      }
+      return report;
+    })
+    .sort((a, b) => b.report_date.localeCompare(a.report_date));
+}
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-IN", {
@@ -171,6 +260,11 @@ export default function SalesReportsPage() {
     loadReports();
   }, []);
 
+  const groupedReports = useMemo(
+    () => groupReportsByDate(reports),
+    [reports],
+  );
+
   const downloadSalesExcel = async (reportDate, platform = "All") => {
     const key = `${reportDate}-${platform}`;
     setDownloadingKey(key);
@@ -234,107 +328,124 @@ export default function SalesReportsPage() {
           <div className="rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm px-6 py-16 text-center text-slate-500">
             Loading sales reports…
           </div>
-        ) : reports.length === 0 ? (
+        ) : groupedReports.length === 0 ? (
           <div className="rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm px-6 py-16 text-center text-slate-500">
             No sales reports saved yet. Generate a final report first to
             record platform sales.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {reports.map((report) => {
-              const accent =
-                PLATFORM_ACCENTS[report.platforms[0]?.platform] ||
-                "from-violet-500 to-purple-600";
-
-              return (
-                <article
-                  key={report.report_date}
-                  className="group rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm overflow-hidden transition hover:border-violet-300 hover:shadow-md"
+            {groupedReports.map((report) => (
+              <article
+                key={report.report_date}
+                className="group rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm overflow-hidden transition hover:border-violet-300 hover:shadow-md"
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedReport(report)}
+                  className="w-full text-left p-5"
                 >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm">
+                      <TrendingUp className="text-white" size={22} />
+                    </div>
+                    <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-violet-100 text-violet-800">
+                      {report.platform_count} platform
+                      {report.platform_count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  <h2 className="text-lg font-bold text-slate-900 mt-4">
+                    {report.report_date}
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Combined sales for all platforms on this date
+                  </p>
+
+                  <div className="mt-4 rounded-xl border border-slate-200/80 bg-white/70 overflow-hidden">
+                    {report.platforms.map((platform) => (
+                      <div
+                        key={platform.platform}
+                        className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0"
+                      >
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            PLATFORM_BADGES[platform.platform] ||
+                            "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {platform.platform}
+                        </span>
+                        <div className="text-right text-xs text-slate-600 tabular-nums">
+                          <span className="font-semibold text-slate-800">
+                            {platform.total_piece_qty} pcs
+                          </span>
+                          <span className="mx-1.5 text-slate-300">·</span>
+                          <span>{formatMoney(platform.total_invoice_amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                        Total orders
+                      </p>
+                      <p className="text-lg font-bold text-slate-900 tabular-nums">
+                        {report.total_orders}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                        Total pieces
+                      </p>
+                      <p className="text-lg font-bold text-slate-900 tabular-nums">
+                        {report.total_piece_qty}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 flex items-center gap-2">
+                    <IndianRupee size={16} className="text-violet-700" />
+                    <span className="text-sm font-semibold text-violet-900 tabular-nums">
+                      {formatMoney(report.total_invoice_amount)}
+                    </span>
+                  </div>
+
+                  <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-violet-700 group-hover:text-violet-900">
+                    <Eye size={16} />
+                    View details
+                  </span>
+                </button>
+
+                <div className="border-t border-slate-200/80 px-5 py-3 bg-white/60">
                   <button
                     type="button"
-                    onClick={() => setSelectedReport(report)}
-                    className="w-full text-left p-5"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      downloadSalesExcel(report.report_date, "All");
+                    }}
+                    disabled={
+                      downloadingKey === `${report.report_date}-All`
+                    }
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-violet-700 hover:text-violet-900 disabled:opacity-50"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div
-                        className={`w-12 h-12 rounded-xl bg-gradient-to-br ${accent} flex items-center justify-center shrink-0 shadow-sm`}
-                      >
-                        <TrendingUp className="text-white" size={22} />
-                      </div>
-                      <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-violet-100 text-violet-800">
-                        {report.platform_count} platform
-                        {report.platform_count === 1 ? "" : "s"}
-                      </span>
-                    </div>
-
-                    <h2 className="text-lg font-bold text-slate-900 mt-4">
-                      {report.report_date}
-                    </h2>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {report.platforms.map((p) => p.platform).join(", ")}
-                    </p>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-slate-50 px-3 py-2">
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                          Total orders
-                        </p>
-                        <p className="text-lg font-bold text-slate-900 tabular-nums">
-                          {report.total_orders}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-slate-50 px-3 py-2">
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                          Total pieces
-                        </p>
-                        <p className="text-lg font-bold text-slate-900 tabular-nums">
-                          {report.total_piece_qty}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 flex items-center gap-2">
-                      <IndianRupee size={16} className="text-violet-700" />
-                      <span className="text-sm font-semibold text-violet-900 tabular-nums">
-                        {formatMoney(report.total_invoice_amount)}
-                      </span>
-                    </div>
-
-                    <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-violet-700 group-hover:text-violet-900">
-                      <Eye size={16} />
-                      View details
-                    </span>
+                    <Download size={16} />
+                    {downloadingKey === `${report.report_date}-All`
+                      ? "Downloading…"
+                      : "Download Excel"}
                   </button>
-
-                  <div className="border-t border-slate-200/80 px-5 py-3 bg-white/60">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        downloadSalesExcel(report.report_date, "All");
-                      }}
-                      disabled={
-                        downloadingKey === `${report.report_date}-All`
-                      }
-                      className="inline-flex items-center gap-2 text-sm font-semibold text-violet-700 hover:text-violet-900 disabled:opacity-50"
-                    >
-                      <Download size={16} />
-                      {downloadingKey === `${report.report_date}-All`
-                        ? "Downloading…"
-                        : "Download Excel"}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+                </div>
+              </article>
+            ))}
           </div>
         )}
 
-        {!loading && reports.length > 0 && (
+        {!loading && groupedReports.length > 0 && (
           <p className="mt-4 text-xs text-slate-500">
-            {reports.length} daily sales report
-            {reports.length === 1 ? "" : "s"} available
+            {groupedReports.length} dated sales report
+            {groupedReports.length === 1 ? "" : "s"} available
           </p>
         )}
       </div>
