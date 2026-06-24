@@ -38,6 +38,10 @@ from app.models.sales_upload import (
     SalesUpload
 )
 
+from app.models.inventory_deduction_log import (
+    InventoryDeductionLog
+)
+
 # =========================
 # IMPORT ROUTES
 # =========================

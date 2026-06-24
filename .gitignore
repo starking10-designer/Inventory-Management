@@ -3,6 +3,8 @@
 # =========================
 
 backend/venv/
+backend/.codex-venv/
+tmp/
 __pycache__/
 *.pyc
 *.pyo

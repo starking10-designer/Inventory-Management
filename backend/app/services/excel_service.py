@@ -237,10 +237,29 @@ def filter_ajio_orders(file_path):
         for col in df.columns
     ]
 
-    filtered_df = df[
-        df["status"]
+    invoice_no = (
+        df.get("custinvoiceno", pd.Series("", index=df.index))
+        .fillna("")
         .astype(str)
-        .str.lower() == "new"
+        .str.strip()
+    )
+    invoice_date = (
+        df.get("custinvoicedate", pd.Series("", index=df.index))
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    filtered_df = df[
+        (
+            df["status"]
+            .astype(str)
+            .str.lower() == "new"
+        )
+        &
+        (invoice_no == "")
+        &
+        (invoice_date == "")
     ]
 
     enriched_df = enrich_order_rows(
@@ -737,8 +756,6 @@ def deduct_return_inventory(expanded_inventory, db):
             "deducted_qty": used_qty,
             "remaining_qty": return_row.qty,
         })
-
-    db.commit()
 
     return {
         "message": "Return inventory deducted after final report generation",

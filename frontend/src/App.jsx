@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Tag,
   TrendingUp,
+  Scissors,
 } from "lucide-react";
 import { API_BASE } from "./api.js";
 import SalesSection from "./components/SalesSection.jsx";
@@ -54,6 +55,47 @@ const getUploadErrorMessage = async (error, fallback) => {
   return error.message || fallback;
 };
 
+const readErrorPayload = async (error) => {
+  const responseData = error.response?.data;
+
+  if (responseData instanceof Blob) {
+    try {
+      const text = await responseData.text();
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
+  return responseData || null;
+};
+
+const getUnknownSkuDetail = async (error) => {
+  if (error.response?.status !== 409) {
+    return null;
+  }
+
+  const payload = await readErrorPayload(error);
+  const detail = payload?.detail;
+
+  if (detail?.code !== "UNKNOWN_SKUS" || !Array.isArray(detail.skus)) {
+    return null;
+  }
+
+  return detail;
+};
+
+const buildUnknownSkuRows = (items) =>
+  items.map((item) => ({
+    platform: item.platform || "",
+    sku: item.sku || "",
+    normalized_sku: item.normalized_sku || "",
+    quantity: item.quantity || 0,
+    style: "",
+    size: "",
+    pieces: Array.from({ length: 5 }, () => ({ color: "", qty: "" })),
+  }));
+
 function App() {
   const [flipkartFile, setFlipkartFile] = useState(null);
   const [amazonFile, setAmazonFile] = useState(null);
@@ -63,11 +105,18 @@ function App() {
   const [skuMasterFile, setSkuMasterFile] = useState(null);
   const [activeSkuMaster, setActiveSkuMaster] = useState(null);
   const [loadingSkuMaster, setLoadingSkuMaster] = useState(true);
+  const [cropperFlipkartFile, setCropperFlipkartFile] = useState(null);
+  const [cropperAmazonFile, setCropperAmazonFile] = useState(null);
+  const [labelCropperBusy, setLabelCropperBusy] = useState(false);
 
   const returnsFileInputRef = useRef(null);
   const [returnsUploading, setReturnsUploading] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
   const [showFinalReportDetails, setShowFinalReportDetails] = useState(false);
+  const [showOrderSummary, setShowOrderSummary] = useState(true);
+  const [unknownSkuRows, setUnknownSkuRows] = useState([]);
+  const [unknownSkuRetryAction, setUnknownSkuRetryAction] = useState(null);
+  const [unknownSkuSaving, setUnknownSkuSaving] = useState(false);
 
   const marketplaceFiles = () => ({
     flipkart: flipkartFile,
@@ -131,6 +180,152 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(new Blob([blob]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const croppedPdfFilename = (file) => {
+    const originalName = file?.name || "labels.pdf";
+    const nameWithoutExtension = originalName.replace(/\.pdf$/i, "");
+    return `${nameWithoutExtension} - cropped.pdf`;
+  };
+
+  const showUnknownSkuPopup = (detail, retryAction) => {
+    setUnknownSkuRows(buildUnknownSkuRows(detail.skus));
+    setUnknownSkuRetryAction(retryAction);
+  };
+
+  const handleUnknownSkuError = async (error, retryAction) => {
+    const detail = await getUnknownSkuDetail(error);
+
+    if (!detail) {
+      return false;
+    }
+
+    showUnknownSkuPopup(detail, retryAction);
+    return true;
+  };
+
+  const updateUnknownSkuRow = (rowIndex, field, value) => {
+    setUnknownSkuRows((rows) =>
+      rows.map((row, index) =>
+        index === rowIndex ? { ...row, [field]: value } : row,
+      ),
+    );
+  };
+
+  const updateUnknownSkuPiece = (rowIndex, pieceIndex, field, value) => {
+    setUnknownSkuRows((rows) =>
+      rows.map((row, index) => {
+        if (index !== rowIndex) {
+          return row;
+        }
+
+        return {
+          ...row,
+          pieces: row.pieces.map((piece, piecePosition) =>
+            piecePosition === pieceIndex
+              ? { ...piece, [field]: value }
+              : piece,
+          ),
+        };
+      }),
+    );
+  };
+
+  const closeUnknownSkuPopup = () => {
+    setUnknownSkuRows([]);
+    setUnknownSkuRetryAction(null);
+  };
+
+  const saveUnknownSkus = async () => {
+    setUnknownSkuSaving(true);
+
+    try {
+      const payload = unknownSkuRows.map((row) => ({
+        platform: row.platform || "Common",
+        sku: row.sku,
+        style: row.style,
+        size: row.size,
+        pieces: row.pieces
+          .filter((piece) => piece.color || piece.qty)
+          .map((piece) => ({
+            color: piece.color,
+            qty: Number(piece.qty || 0),
+          })),
+      }));
+
+      await axios.post(`${API_BASE}/sku-master/manual`, payload);
+      await fetchCurrentSkuMaster();
+
+      const retryAction = unknownSkuRetryAction;
+      closeUnknownSkuPopup();
+
+      if (retryAction === "print") {
+        await printFinalReportOnly();
+      } else {
+        await generateFinalReport();
+      }
+    } catch (error) {
+      console.error(error);
+      alert(await getUploadErrorMessage(error, "Failed to save SKU details"));
+    } finally {
+      setUnknownSkuSaving(false);
+    }
+  };
+
+  const generateSingleLabelCropperPdf = async (fieldName, file) => {
+    const formData = new FormData();
+    formData.append(fieldName, file, file.name);
+
+    const response = await axios.post(
+      `${API_BASE}/label-cropper`,
+      formData,
+      { responseType: "blob" },
+    );
+
+    downloadBlob(response.data, croppedPdfFilename(file));
+  };
+
+  const generateLabelCropperPdf = async () => {
+    if (!cropperAmazonFile && !cropperFlipkartFile) {
+      alert("Upload a Flipkart or Amazon label PDF.");
+      return;
+    }
+
+    setLabelCropperBusy(true);
+    try {
+      if (cropperFlipkartFile) {
+        await generateSingleLabelCropperPdf(
+          "flipkart_file",
+          cropperFlipkartFile,
+        );
+      }
+
+      if (cropperAmazonFile) {
+        await generateSingleLabelCropperPdf(
+          "amazon_file",
+          cropperAmazonFile,
+        );
+      }
+
+      setCropperFlipkartFile(null);
+      setCropperAmazonFile(null);
+    } catch (error) {
+      console.error(error);
+      alert(await getUploadErrorMessage(error, "Failed to generate label PDF"));
+    } finally {
+      setLabelCropperBusy(false);
+    }
+  };
+
   const generateFinalReport = async () => {
     const files = marketplaceFiles();
     if (!hasMarketplaceFiles(files)) {
@@ -145,6 +340,10 @@ function App() {
         "include_detail_columns",
         showFinalReportDetails ? "true" : "false",
       );
+      formData.append(
+        "include_order_summary",
+        showOrderSummary ? "true" : "false",
+      );
       const response = await axios.post(
         `${API_BASE}/export-final-report`,
         formData,
@@ -157,6 +356,9 @@ function App() {
       loadSalesSummary();
     } catch (error) {
       console.error(error);
+      if (await handleUnknownSkuError(error, "download")) {
+        return;
+      }
       alert(await getUploadErrorMessage(error, "Failed to generate report"));
     } finally {
       setReportBusy(false);
@@ -183,6 +385,9 @@ function App() {
       loadSalesSummary();
     } catch (error) {
       console.error(error);
+      if (await handleUnknownSkuError(error, "print")) {
+        return;
+      }
       alert(
         await getUploadErrorMessage(
           error,
@@ -527,7 +732,8 @@ function App() {
                     Daily order details
                   </h2>
                   <p className="text-slate-500 text-sm mt-1">
-                    Platform cards with order details, Excel download, and popup view.
+                    Platform cards with order details, Excel download, and popup
+                    view.
                   </p>
                 </div>
               </div>
@@ -600,7 +806,7 @@ function App() {
 
           <Link
             to="/sticker-inventory"
-            className="group flex flex-col rounded-2xl border border-white/80 bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-emerald-300 hover:bg-fuchsia-50/40"
+            className="group flex flex-col rounded-2xl border border-white/80 bg-white/55 p-5 backdrop-blur-xl shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/40"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -612,7 +818,7 @@ function App() {
                     Sticker inventory
                   </h2>
                   <p className="text-slate-500 text-sm mt-1">
-                    LSDS01–21 and SN sticker stock by numbered color.
+                    dtf sticker stock with color wise detailed information
                   </p>
                 </div>
               </div>
@@ -710,6 +916,17 @@ function App() {
                 />
                 Detail columns
               </label>
+              <label className="flex items-center gap-2 rounded-xl border border-white/80 bg-white/55 px-3 py-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-indigo-600"
+                  checked={showOrderSummary}
+                  onChange={(event) =>
+                    setShowOrderSummary(event.target.checked)
+                  }
+                />
+                Order summary
+              </label>
               <button
                 type="button"
                 title="Print report (upload files first)"
@@ -729,8 +946,246 @@ function App() {
               </button>
             </div>
           </div>
+
+          <div className="rounded-2xl bg-white/55 border border-white/80 p-5 backdrop-blur-xl shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold">Label Cropper</h2>
+              <p className="text-slate-500 mt-1 text-sm">
+                Upload marketplace shipping label PDFs
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[
+                {
+                  title: "Flipkart",
+                  file: cropperFlipkartFile,
+                  setFile: setCropperFlipkartFile,
+                },
+                {
+                  title: "Amazon",
+                  file: cropperAmazonFile,
+                  setFile: setCropperAmazonFile,
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="relative rounded-xl border border-white/80 bg-white/45 backdrop-blur p-4 hover:border-cyan-300 hover:bg-cyan-50/70 transition-all duration-300 group"
+                >
+                  {item.file && (
+                    <button
+                      type="button"
+                      title={`Remove ${item.title} label PDF`}
+                      onClick={() => item.setFile(null)}
+                      className="absolute right-3 top-3 p-2 rounded-lg border border-red-200 bg-white/90 text-red-600 hover:bg-red-50 transition"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                  <label
+                    className={`block ${
+                      item.file ? "cursor-default" : "cursor-pointer"
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      className="hidden"
+                      disabled={!!item.file}
+                      onChange={(e) => {
+                        item.setFile(e.target.files?.[0] ?? null);
+                        e.target.value = "";
+                      }}
+                    />
+                    <div className="w-11 h-11 rounded-xl bg-cyan-100 flex items-center justify-center mb-4 group-hover:scale-105 transition">
+                      <Upload size={20} className="text-cyan-700" />
+                    </div>
+                    <h3 className="text-base font-semibold">{item.title}</h3>
+                    <p className="text-slate-500 text-sm mt-1">
+                      Upload label PDF
+                    </p>
+                    {item.file && (
+                      <div className="mt-4 rounded-lg bg-emerald-100/90 border border-emerald-200 px-3 py-2 text-sm text-emerald-700 truncate">
+                        {item.file.name}
+                      </div>
+                    )}
+                  </label>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3 items-center">
+              <button
+                type="button"
+                disabled={labelCropperBusy || (!cropperAmazonFile && !cropperFlipkartFile)}
+                onClick={generateLabelCropperPdf}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 font-semibold text-sm shadow-lg shadow-cyan-500/20 text-white hover:scale-[1.02] transition disabled:opacity-60"
+              >
+                <Scissors size={18} />
+                {labelCropperBusy ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+      {unknownSkuRows.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
+          <div className="w-full max-w-5xl max-h-[88vh] overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <div className="flex items-center gap-2 text-amber-700 font-semibold">
+                  <AlertTriangle size={20} />
+                  Unknown SKU found
+                </div>
+                <p className="text-sm text-slate-500 mt-1">
+                  Add the missing SKU details to the master, then the report
+                  will continue automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeUnknownSkuPopup}
+                disabled={unknownSkuSaving}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-6 py-5 space-y-5">
+              {unknownSkuRows.map((row, rowIndex) => (
+                <div
+                  key={`${row.platform}-${row.normalized_sku}-${rowIndex}`}
+                  className="rounded-xl border border-amber-200 bg-amber-50/50 p-4"
+                >
+                  <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <span className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 border border-amber-200">
+                      <Tag size={16} />
+                      {row.sku}
+                    </span>
+                    <span className="rounded-lg bg-white px-3 py-1.5 text-sm text-slate-600 border border-amber-200">
+                      Platform: {row.platform}
+                    </span>
+                    <span className="rounded-lg bg-white px-3 py-1.5 text-sm text-slate-600 border border-amber-200">
+                      Order qty: {row.quantity}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="text-sm font-semibold text-slate-700">
+                      SKU
+                      <input
+                        type="text"
+                        value={row.sku}
+                        onChange={(event) =>
+                          updateUnknownSkuRow(
+                            rowIndex,
+                            "sku",
+                            event.target.value,
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      />
+                    </label>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Style
+                      <input
+                        type="text"
+                        value={row.style}
+                        onChange={(event) =>
+                          updateUnknownSkuRow(
+                            rowIndex,
+                            "style",
+                            event.target.value,
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      />
+                    </label>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Size
+                      <input
+                        type="text"
+                        value={row.size}
+                        onChange={(event) =>
+                          updateUnknownSkuRow(
+                            rowIndex,
+                            "size",
+                            event.target.value,
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+                    {row.pieces.map((piece, pieceIndex) => (
+                      <div
+                        key={pieceIndex}
+                        className="rounded-lg border border-slate-200 bg-white p-3"
+                      >
+                        <label className="text-xs font-semibold text-slate-600">
+                          Color {pieceIndex + 1}
+                          <input
+                            type="text"
+                            value={piece.color}
+                            onChange={(event) =>
+                              updateUnknownSkuPiece(
+                                rowIndex,
+                                pieceIndex,
+                                "color",
+                                event.target.value,
+                              )
+                            }
+                            className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          />
+                        </label>
+                        <label className="mt-2 block text-xs font-semibold text-slate-600">
+                          Qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={piece.qty}
+                            onChange={(event) =>
+                              updateUnknownSkuPiece(
+                                rowIndex,
+                                pieceIndex,
+                                "qty",
+                                event.target.value,
+                              )
+                            }
+                            className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={closeUnknownSkuPopup}
+                disabled={unknownSkuSaving}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveUnknownSkus}
+                disabled={unknownSkuSaving}
+                className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {unknownSkuSaving ? "Saving..." : "Save and Generate Report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showLowStockModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl p-6 max-h-[80vh] flex flex-col">

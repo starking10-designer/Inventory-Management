@@ -251,6 +251,12 @@ export default function DailyReportPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [downloadingPlatform, setDownloadingPlatform] = useState(null);
   const [selectedCard, setSelectedCard] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState({
+    platform: "All",
+    label: "all platforms",
+  });
 
   const loadDailyReport = async () => {
     setDailyReportLoading(true);
@@ -345,28 +351,52 @@ export default function DailyReportPage() {
     }
   };
 
-  const deleteReport = async () => {
+  const openDeleteModal = (target = null) => {
     if (!dailyReportDate) {
       alert("Select a date to delete");
       return;
     }
 
-    const ok = window.confirm(
-      `Delete all daily reports for ${dailyReportDate}? This cannot be undone.`,
+    setDeleteTarget(
+      target || {
+        platform: "All",
+        label: "all platforms",
+      },
     );
-    if (!ok) return;
+    setDeletePassword("");
+    setShowDeleteModal(true);
+  };
+
+  const closeDeleteModal = (force = false) => {
+    if (actionLoading && !force) return;
+
+    setShowDeleteModal(false);
+    setDeletePassword("");
+  };
+
+  const deleteReport = async () => {
+    if (deletePassword !== "Admin") {
+      alert("Invalid password");
+      return;
+    }
 
     setActionLoading(true);
     try {
       const { data } = await axios.delete(`${API_BASE}/daily-report`, {
         params: {
           report_date: dailyReportDate,
-          platform: "All",
+          platform: deleteTarget.platform,
+          password: deletePassword,
         },
       });
       alert(
-        `Deleted ${data.deleted_rows ?? 0} row(s) for ${data.report_date}`,
+        (
+          `Deleted ${data.deleted_rows ?? 0} row(s) for `
+          + `${deleteTarget.label} on ${data.report_date}. `
+          + `Restored ${data.restored_inventory_qty ?? 0} inventory pieces.`
+        ),
       );
+      closeDeleteModal(true);
       setSelectedCard(null);
       await loadDailyReport();
     } catch (error) {
@@ -413,8 +443,20 @@ export default function DailyReportPage() {
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
             />
           </label>
-          
-          
+          <button
+            type="button"
+            onClick={openDeleteModal}
+            disabled={
+              actionLoading ||
+              dailyReportLoading ||
+              reportCards.length === 0
+            }
+            title="Delete reports for this date"
+            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-white"
+          >
+            <Trash2 size={16} />
+            Delete date
+          </button>
         </div>
 
         {dailyReportLoading ? (
@@ -483,7 +525,7 @@ export default function DailyReportPage() {
                   </span>
                 </button>
 
-                <div className="border-t border-slate-200/80 px-5 py-3 bg-white/60">
+                <div className="border-t border-slate-200/80 px-5 py-3 bg-white/60 flex items-center justify-between gap-3">
                   <button
                     type="button"
                     onClick={(event) => {
@@ -500,6 +542,21 @@ export default function DailyReportPage() {
                       ? "Downloading…"
                       : "Download Excel"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openDeleteModal({
+                        platform: card.name,
+                        label: card.name,
+                      });
+                    }}
+                    disabled={actionLoading}
+                    title={`Delete ${card.name} report`}
+                    className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white p-2 text-red-600 hover:bg-red-50 disabled:opacity-40"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </article>
             ))}
@@ -513,6 +570,74 @@ export default function DailyReportPage() {
           </p>
         )}
       </div>
+
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+          onClick={() => closeDeleteModal()}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/80 bg-white shadow-2xl overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-report-title"
+          >
+            <div className="px-5 py-4 border-b border-slate-200 bg-red-50">
+              <div className="flex items-center gap-2 text-red-700">
+                <Trash2 size={20} />
+                <h2 id="delete-report-title" className="text-lg font-bold">
+                  Delete daily report
+                </h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                This will delete {deleteTarget.label} report
+                {deleteTarget.platform === "All" ? "s" : ""} for{" "}
+                {dailyReportDate}.
+              </p>
+            </div>
+
+            <form
+              className="px-5 py-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                deleteReport();
+              }}
+            >
+              <label className="block text-sm font-semibold text-slate-700">
+                Password
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(event) => setDeletePassword(event.target.value)}
+                  autoFocus
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-200"
+                />
+              </label>
+
+              <div className="mt-5 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => closeDeleteModal()}
+                  disabled={actionLoading}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  <Trash2 size={16} />
+                  {actionLoading ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <ReportDetailModal
         card={selectedCard}

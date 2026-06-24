@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Header, Form
 from sqlalchemy.orm import Session
@@ -28,10 +28,12 @@ from app.models.return_inventory import ReturnInventory
 from app.models.stock_inventory import StockInventory
 from app.models.sticker_inventory import StickerInventory
 from app.models.sales_upload import SalesUpload
+from app.models.inventory_deduction_log import InventoryDeductionLog
 
 from app.services.excel_service import (
     clean_color_name,
     normalize_column_name,
+    normalize_sku,
 
     read_excel_file,
     read_sheet_columns,
@@ -77,6 +79,19 @@ PLATFORM_NAMES = [
     "Meesho",
     "Myntra",
 ]
+
+
+class ManualSKUPieceCreate(BaseModel):
+    color: Optional[str] = ""
+    qty: Optional[int] = 0
+
+
+class ManualSKUMasterCreate(BaseModel):
+    platform: Optional[str] = "Common"
+    sku: str = Field(..., min_length=1)
+    style: Optional[str] = ""
+    size: Optional[str] = ""
+    pieces: List[ManualSKUPieceCreate] = Field(default_factory=list)
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -217,22 +232,11 @@ def _safe_float(value):
         return 0
 
 
-def save_daily_sales_summary(
-    db: Session,
-    report_date: date,
-    platform: str,
-    orders,
-    mapped_piece_qty: int
-):
+def _unique_order_count(orders):
     unique_order_ids = set()
     fallback_order_count = 0
-    total_invoice_amount = 0
 
     for row in orders:
-        total_invoice_amount += _safe_float(
-            row.get("price", 0)
-        )
-
         order_id = str(
             row.get("order_id", "")
         ).strip()
@@ -242,10 +246,191 @@ def save_daily_sales_summary(
         else:
             fallback_order_count += 1
 
-    new_order_count = (
-        len(unique_order_ids)
-        + fallback_order_count
+    return len(unique_order_ids) + fallback_order_count
+
+
+def _log_inventory_deductions(
+    db: Session,
+    report_date: date,
+    platform: str,
+    inventory_type: str,
+    deductions,
+):
+    for deduction in deductions or []:
+        deducted_qty = _safe_int(
+            deduction.get("deducted_qty", 0)
+        )
+
+        if deducted_qty <= 0:
+            continue
+
+        db.add(
+            InventoryDeductionLog(
+                report_date=report_date,
+                platform=platform,
+                inventory_type=inventory_type,
+                style=str(deduction.get("style", "")).strip(),
+                color=str(deduction.get("color", "")).strip(),
+                size=str(deduction.get("size", "")).strip() or None,
+                qty=deducted_qty,
+            )
+        )
+
+
+def _restore_inventory_deduction_log(
+    db: Session,
+    report_date: date,
+    platform: str = None,
+):
+    query = db.query(InventoryDeductionLog).filter(
+        InventoryDeductionLog.report_date == report_date
     )
+
+    if platform == "All":
+        query = query.filter(
+            InventoryDeductionLog.platform.in_(PLATFORM_NAMES)
+        )
+    elif platform:
+        query = query.filter(
+            InventoryDeductionLog.platform == platform
+        )
+
+    logs = query.all()
+
+    for log in logs:
+        qty = _safe_int(log.qty)
+
+        if qty <= 0:
+            continue
+
+        if log.inventory_type == "stock":
+            row = db.query(StockInventory).filter(
+                StockInventory.style == log.style,
+                StockInventory.color == log.color,
+                StockInventory.size == log.size,
+            ).first()
+
+            if not row:
+                row = StockInventory(
+                    style=log.style,
+                    color=log.color,
+                    size=log.size,
+                    qty=0,
+                )
+                db.add(row)
+                db.flush()
+
+            row.qty = _safe_int(row.qty) + qty
+
+        elif log.inventory_type == "return":
+            row = db.query(ReturnInventory).filter(
+                ReturnInventory.style == log.style,
+                ReturnInventory.color == log.color,
+                ReturnInventory.size == log.size,
+            ).first()
+
+            if not row:
+                row = ReturnInventory(
+                    style=log.style,
+                    color=log.color,
+                    size=log.size,
+                    qty=0,
+                )
+                db.add(row)
+                db.flush()
+
+            row.qty = _safe_int(row.qty) + qty
+
+        elif log.inventory_type == "sticker":
+            row = db.query(StickerInventory).filter(
+                StickerInventory.style == log.style,
+                StickerInventory.color == log.color,
+            ).first()
+
+            if not row:
+                row = StickerInventory(
+                    style=log.style,
+                    color=log.color,
+                    qty=0,
+                )
+                db.add(row)
+                db.flush()
+
+            row.qty = _safe_int(row.qty) + qty
+
+    restored_count = len(logs)
+    restored_qty = sum(
+        _safe_int(log.qty)
+        for log in logs
+    )
+
+    query.delete(synchronize_session=False)
+
+    return {
+        "restored_logs": restored_count,
+        "restored_qty": restored_qty,
+    }
+
+
+def _rebuild_all_daily_report_rows(
+    db: Session,
+    report_date: date,
+):
+    db.query(DailyReport).filter(
+        DailyReport.report_date == report_date,
+        DailyReport.platform == "All",
+    ).delete(synchronize_session=False)
+
+    rows = db.query(DailyReport).filter(
+        DailyReport.report_date == report_date,
+        DailyReport.platform != "All",
+    ).all()
+
+    grouped_rows = {}
+
+    for row in rows:
+        key = (
+            row.style,
+            row.color,
+            row.size,
+        )
+
+        if key not in grouped_rows:
+            grouped_rows[key] = 0
+
+        grouped_rows[key] += _safe_int(row.total_order_qty)
+
+    for (style, color, size), qty in grouped_rows.items():
+        if qty <= 0:
+            continue
+
+        db.add(
+            DailyReport(
+                report_date=report_date,
+                platform="All",
+                style=style,
+                color=color,
+                size=size,
+                total_order_qty=qty,
+            )
+        )
+
+
+def save_daily_sales_summary(
+    db: Session,
+    report_date: date,
+    platform: str,
+    orders,
+    mapped_piece_qty: int
+):
+    total_invoice_amount = 0
+
+    for row in orders:
+        total_invoice_amount += _safe_float(
+            row.get("price", 0)
+        )
+
+    new_order_count = _unique_order_count(orders)
 
     existing = db.query(DailySalesReport).filter(
         DailySalesReport.report_date == report_date,
@@ -473,6 +658,72 @@ def _orders_for_report_date(
         orders.extend(platform_order_list)
 
     return orders
+
+
+def _unknown_platform_skus(db: Session, platform_orders: dict) -> List[dict]:
+    master_skus = {
+        normalize_sku(row.sku)
+        for row in db.query(SKUMaster.sku).all()
+        if row.sku
+    }
+
+    unknown_by_key = {}
+
+    for platform_name, orders in platform_orders.items():
+        for order in orders:
+            raw_sku = str(order.get("sku", "")).strip()
+
+            if not raw_sku:
+                continue
+
+            normalized = normalize_sku(raw_sku)
+
+            if normalized in master_skus:
+                continue
+
+            key = normalized
+
+            if key not in unknown_by_key:
+                unknown_by_key[key] = {
+                    "platform": platform_name,
+                    "platforms": [platform_name],
+                    "sku": raw_sku,
+                    "normalized_sku": normalized,
+                    "quantity": 0,
+                }
+            elif platform_name not in unknown_by_key[key]["platforms"]:
+                unknown_by_key[key]["platforms"].append(platform_name)
+                unknown_by_key[key]["platform"] = ", ".join(
+                    unknown_by_key[key]["platforms"]
+                )
+
+            unknown_by_key[key]["quantity"] += _safe_int(
+                order.get("quantity", 0)
+            )
+
+    return list(unknown_by_key.values())
+
+
+def _raise_if_unknown_platform_skus(
+    db: Session,
+    platform_orders: dict,
+):
+    unknown_skus = _unknown_platform_skus(
+        db,
+        platform_orders,
+    )
+
+    if unknown_skus:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "UNKNOWN_SKUS",
+                "message": (
+                    "Some platform SKUs are not available in the SKU master."
+                ),
+                "skus": unknown_skus,
+            },
+        )
 
 
 def _daily_report_query(db: Session, report_date, platform):
@@ -850,20 +1101,31 @@ def export_daily_report_excel(
 def delete_daily_report(
     report_date: str = Query(...),
     platform: str = Query(None),
+    password: str = Query(""),
 ):
+    if password != "Admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid password",
+        )
+
     db: Session = SessionLocal()
 
     try:
         parsed_date = _parse_report_date(report_date)
+
+        restore_result = _restore_inventory_deduction_log(
+            db,
+            parsed_date,
+            platform,
+        )
 
         query = db.query(DailyReport).filter(
             DailyReport.report_date == parsed_date
         )
 
         if platform == "All":
-            query = query.filter(
-                DailyReport.platform != "All"
-            )
+            pass
         elif platform:
             query = query.filter(
                 DailyReport.platform == platform
@@ -887,15 +1149,27 @@ def delete_daily_report(
         deleted_sales = sales_query.delete(
             synchronize_session=False
         )
+
+        if platform and platform != "All":
+            _rebuild_all_daily_report_rows(
+                db,
+                parsed_date,
+            )
+
         db.commit()
 
         return {
             "message": "Daily report deleted successfully",
             "deleted_rows": deleted,
             "deleted_sales_rows": deleted_sales,
+            "restored_inventory_rows": restore_result["restored_logs"],
+            "restored_inventory_qty": restore_result["restored_qty"],
             "report_date": str(parsed_date),
             "platform": platform or "all",
         }
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -1836,6 +2110,91 @@ def update_return_inventory_qty(
 # FILE UPLOAD
 # =====================================
 
+@router.post("/sku-master/manual")
+def save_manual_sku_master(
+    items: List[ManualSKUMasterCreate],
+    db: Session = Depends(get_db),
+):
+    saved_items = []
+
+    for item in items:
+        sku_value = item.sku.strip()
+
+        if not sku_value:
+            continue
+
+        normalized_sku = normalize_sku(sku_value)
+        existing_sku = None
+
+        for row in db.query(SKUMaster).all():
+            if normalize_sku(row.sku) == normalized_sku:
+                existing_sku = row
+                break
+
+        if existing_sku:
+            sku_master = existing_sku
+            sku_master.platform = item.platform or "Common"
+            sku_master.sku = sku_value
+            sku_master.style = (item.style or "").strip()
+            sku_master.size = (item.size or "").strip()
+
+            db.query(SKUPiece).filter(
+                SKUPiece.sku_master_id == sku_master.id
+            ).delete()
+        else:
+            sku_master = SKUMaster(
+                platform=item.platform or "Common",
+                sku=sku_value,
+                style=(item.style or "").strip(),
+                size=(item.size or "").strip(),
+            )
+            db.add(sku_master)
+            db.flush()
+
+        for piece in item.pieces:
+            color_value = clean_color_name(piece.color or "")
+
+            if (
+                not color_value
+                or color_value == "nan"
+                or color_value == "-"
+            ):
+                continue
+
+            qty_value = _safe_int(piece.qty)
+
+            if qty_value <= 0:
+                continue
+
+            db.add(
+                SKUPiece(
+                    sku_master_id=sku_master.id,
+                    color=color_value,
+                    qty=qty_value,
+                )
+            )
+
+        saved_items.append(
+            {
+                "sku": sku_master.sku,
+                "platform": sku_master.platform,
+            }
+        )
+
+    if not saved_items:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter at least one SKU.",
+        )
+
+    db.commit()
+
+    return {
+        "message": "SKU master updated",
+        "count": len(saved_items),
+        "items": saved_items,
+    }
+
 @router.post("/upload-file")
 def upload_file(
     file: UploadFile = File(...)
@@ -2627,6 +2986,11 @@ def generate_final_report(
     db: Session = SessionLocal()
 
     try:
+        _raise_if_unknown_platform_skus(
+            db,
+            platform_orders,
+        )
+
         expanded_inventory = expand_inventory(
             aggregated_orders,
             db
@@ -2820,6 +3184,7 @@ def export_final_report(
     myntra_file: UploadFile = File(None),
 
     include_detail_columns: bool = Form(True),
+    include_order_summary: bool = Form(True),
 ):
 
     all_orders, platform_orders = _collect_marketplace_orders(
@@ -2841,88 +3206,139 @@ def export_final_report(
     )
 
     db: Session = SessionLocal()
+    order_summary_rows = []
 
-    expanded_inventory = expand_inventory(
-        aggregated_orders,
-        db
-    )
-
-    final_report = generate_daily_report(
-        expanded_inventory,
-        db
-    )
-
-    report_date = datetime.now().date()
-
-    all_platform_orders = _orders_for_report_date(
-        platform_orders,
-        report_date,
-    )
-    all_platform_aggregated = aggregate_orders(
-        all_platform_orders
-    )
-    all_platform_expanded = expand_inventory(
-        all_platform_aggregated,
-        db
-    )
-    all_platform_report = generate_daily_report(
-        all_platform_expanded,
-        db
-    )
-
-    save_daily_report_rows(
-        db,
-        report_date,
-        "All",
-        all_platform_report
-    )
-
-    counted_platforms, _ = _save_new_platform_sales(
-        db,
-        report_date,
-        platform_orders,
-        {
-            "Flipkart": flipkart_file,
-            "Amazon": amazon_file,
-            "Ajio": ajio_file,
-            "Meesho": meesho_file,
-            "Myntra": myntra_file,
-        }
-    )
-
-    new_orders = []
-
-    for platform in counted_platforms:
-        new_orders.extend(
-            platform_orders.get(platform, [])
+    try:
+        _raise_if_unknown_platform_skus(
+            db,
+            platform_orders,
         )
 
-    if new_orders:
-        deduction_orders = aggregate_orders(
-            new_orders
-        )
-        deduction_inventory = expand_inventory(
-            deduction_orders,
-            db
-        )
-        stock_deduction_report = generate_daily_report(
-            deduction_inventory,
-            db
-        )
-        deduct_lsds_stock_inventory(
-            stock_deduction_report,
-            db
-        )
-        deduct_sticker_inventory(
-            stock_deduction_report,
-            db
-        )
-        deduct_return_inventory(
-            deduction_inventory,
+        expanded_inventory = expand_inventory(
+            aggregated_orders,
             db
         )
 
-    db.commit()
+        final_report = generate_daily_report(
+            expanded_inventory,
+            db
+        )
+
+        report_date = datetime.now().date()
+
+        all_platform_orders = _orders_for_report_date(
+            platform_orders,
+            report_date,
+        )
+        all_platform_aggregated = aggregate_orders(
+            all_platform_orders
+        )
+        all_platform_expanded = expand_inventory(
+            all_platform_aggregated,
+            db
+        )
+        all_platform_report = generate_daily_report(
+            all_platform_expanded,
+            db
+        )
+
+        save_daily_report_rows(
+            db,
+            report_date,
+            "All",
+            all_platform_report
+        )
+
+        counted_platforms, _ = _save_new_platform_sales(
+            db,
+            report_date,
+            platform_orders,
+            {
+                "Flipkart": flipkart_file,
+                "Amazon": amazon_file,
+                "Ajio": ajio_file,
+                "Meesho": meesho_file,
+                "Myntra": myntra_file,
+            }
+        )
+
+        if include_order_summary:
+            for platform_name, orders in platform_orders.items():
+                platform_aggregated = aggregate_orders(orders)
+                platform_expanded = expand_inventory(
+                    platform_aggregated,
+                    db
+                )
+                order_summary_rows.append(
+                    {
+                        "platform": platform_name,
+                        "total_orders": _unique_order_count(orders),
+                        "piece_qty": sum(
+                            _safe_int(item.get("qty", 0))
+                            for item in platform_expanded
+                        ),
+                    }
+                )
+
+        for platform in counted_platforms:
+            platform_deduction_orders = aggregate_orders(
+                platform_orders.get(platform, [])
+            )
+
+            if not platform_deduction_orders:
+                continue
+
+            deduction_inventory = expand_inventory(
+                platform_deduction_orders,
+                db
+            )
+            stock_deduction_report = generate_daily_report(
+                deduction_inventory,
+                db
+            )
+
+            stock_result = deduct_lsds_stock_inventory(
+                stock_deduction_report,
+                db
+            )
+            _log_inventory_deductions(
+                db,
+                report_date,
+                platform,
+                "stock",
+                stock_result.get("deductions", []),
+            )
+
+            sticker_result = deduct_sticker_inventory(
+                stock_deduction_report,
+                db
+            )
+            _log_inventory_deductions(
+                db,
+                report_date,
+                platform,
+                "sticker",
+                sticker_result.get("deductions", []),
+            )
+
+            return_result = deduct_return_inventory(
+                deduction_inventory,
+                db
+            )
+            _log_inventory_deductions(
+                db,
+                report_date,
+                platform,
+                "return",
+                return_result.get("deductions", []),
+            )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
        # =====================
     # EXPORT EXCEL
@@ -2986,13 +3402,47 @@ def export_final_report(
     ]
     columns_per_size = 3 if include_detail_columns else 1
     total_columns = 2 + (len(available_sizes) * columns_per_size)
+    summary_columns = 3 if include_order_summary else 0
+    sheet_columns = max(total_columns, summary_columns, 2)
     last_column = get_column_letter(max(total_columns, 2))
-    header_end_row = 3 if include_detail_columns else 2
+    header_start_row = 2
+
+    if include_order_summary:
+        header_start_row = 6 + len(order_summary_rows)
+
+    header_end_row = (
+        header_start_row + 1
+        if include_detail_columns
+        else header_start_row
+    )
     data_start_row = header_end_row + 1
 
     ws.title = "Final Report"
-    ws.merge_cells(f"A1:{last_column}1")
+    ws.merge_cells(f"A1:{get_column_letter(sheet_columns)}1")
     ws["A1"] = f"Generated At: {generated_at}"
+
+    if include_order_summary:
+        ws.merge_cells(f"A2:{get_column_letter(sheet_columns)}2")
+        ws["A2"] = "Order Summary"
+        ws.append([
+            "Platform",
+            "Total Orders",
+            "Total Piece Qty",
+        ])
+
+        for summary in order_summary_rows:
+            ws.append([
+                summary["platform"],
+                summary["total_orders"],
+                summary["piece_qty"],
+            ])
+
+        ws.append([
+            "Total",
+            sum(item["total_orders"] for item in order_summary_rows),
+            sum(item["piece_qty"] for item in order_summary_rows),
+        ])
+        ws.append([""] * sheet_columns)
 
     # =====================
     # HEADER DESIGN
@@ -3017,14 +3467,17 @@ def export_final_report(
     if include_detail_columns:
         ws.append(sub_headers)
 
-        ws.merge_cells("A2:A3")
-        ws.merge_cells("B2:B3")
+        ws.merge_cells(f"A{header_start_row}:A{header_end_row}")
+        ws.merge_cells(f"B{header_start_row}:B{header_end_row}")
 
         for index, _ in enumerate(available_sizes):
             start_col = 3 + (index * columns_per_size)
             end_col = start_col + columns_per_size - 1
             ws.merge_cells(
-                f"{get_column_letter(start_col)}2:{get_column_letter(end_col)}2"
+                (
+                    f"{get_column_letter(start_col)}{header_start_row}:"
+                    f"{get_column_letter(end_col)}{header_start_row}"
+                )
             )
 
     # =====================
@@ -3087,6 +3540,17 @@ def export_final_report(
         size=12,
     )
 
+    summary_title_fill = PatternFill(
+        start_color="FDE68A",
+        end_color="FDE68A",
+        fill_type="solid"
+    )
+
+    summary_header_fill = PatternFill(
+        start_color="FEF3C7",
+        end_color="FEF3C7",
+        fill_type="solid"
+    )
 
     ws["A1"].fill = timestamp_fill
     ws["A1"].font = Font(bold=True, color="111827", size=12)
@@ -3096,8 +3560,34 @@ def export_final_report(
     )
     ws.row_dimensions[1].height = 18
 
+    if include_order_summary:
+        ws["A2"].fill = summary_title_fill
+        ws["A2"].font = Font(bold=True, color="92400E", size=13)
+        ws["A2"].alignment = center_align
+
+        summary_end_row = 3 + len(order_summary_rows) + 1
+
+        for row in ws.iter_rows(
+            min_row=3,
+            max_row=summary_end_row,
+            min_col=1,
+            max_col=3
+        ):
+            for cell in row:
+                cell.alignment = center_align
+                cell.border = thin_border
+
+                if cell.row == 3:
+                    cell.fill = summary_header_fill
+                    cell.font = Font(bold=True, color="78350F", size=11)
+                elif cell.row == summary_end_row:
+                    cell.fill = subtotal_fill
+                    cell.font = subtotal_font
+                else:
+                    cell.font = Font(size=11)
+
     for row in ws.iter_rows(
-        min_row=2,
+        min_row=header_start_row,
         max_row=header_end_row,
         min_col=1,
         max_col=max(total_columns, 2)
@@ -3311,7 +3801,7 @@ def export_final_report(
 
     for col in range(
         3,
-        max(total_columns, 2) + 1
+        sheet_columns + 1
     ):
 
         ws.column_dimensions[
@@ -3367,7 +3857,6 @@ def export_final_report(
                 cell.fill = table_lighter_fill
 
     wb.save(output_file)
-    db.close()
 
     return FileResponse(
         output_file,
@@ -3420,6 +3909,11 @@ def confirm_final_report(
     }
 
     try:
+        _raise_if_unknown_platform_skus(
+            db,
+            platform_orders,
+        )
+
         new_orders, counted_platforms, skipped_platforms = (
             _orders_from_new_platform_uploads(
                 db,
@@ -3453,11 +3947,607 @@ def confirm_final_report(
             expanded_inventory,
             db,
         )
+        db.commit()
         result["counted_platforms"] = counted_platforms
         result["skipped_duplicate_platforms"] = skipped_platforms
         return result
     finally:
         db.close()
+
+
+def _clean_extracted_sku(raw_value: str):
+    value = str(raw_value or "").strip()
+    value = re.sub(r"\s+", " ", value)
+    value = re.split(
+        r"\s{2,}|\b(?:qty|quantity|hsn|asin|fnsku|tax|description)\b",
+        value,
+        flags=re.IGNORECASE,
+    )[0].strip(" :-#|")
+    value = re.sub(r"\s+", "", value)
+    return value[:80]
+
+
+def _looks_like_amazon_seller_sku(value: str):
+    value = str(value or "").strip()
+
+    if len(value) < 5:
+        return False
+
+    if not re.search(r"[-_]", value):
+        return False
+
+    if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
+        return False
+
+    return True
+
+
+def _extract_amazon_invoice_sku(text: str):
+    combined_text = re.sub(r"\s+", " ", str(text or ""))
+    wrapped_sku_match = re.search(
+        r"\bB0[A-Z0-9]{8,}\s*\(\s*([A-Z0-9][A-Z0-9._/\-\s]{2,80}?)\s*\)",
+        combined_text,
+    )
+
+    if wrapped_sku_match:
+        sku = _clean_extracted_sku(wrapped_sku_match.group(1))
+        if _looks_like_amazon_seller_sku(sku):
+            return sku
+
+    lines = [
+        re.sub(r"\s+", " ", line).strip()
+        for line in str(text or "").splitlines()
+        if line.strip()
+    ]
+
+    sku_patterns = [
+        r"\(\s*([A-Z0-9][A-Z0-9._/\-]{2,80})\s*\)",
+        r"\bMerchant\s+SKU\b\s*(?:No\.?|#|:|-)?\s*([A-Za-z0-9][A-Za-z0-9._/\- ]{1,80})",
+        r"\bSeller\s+SKU\b\s*(?:No\.?|#|:|-)?\s*([A-Za-z0-9][A-Za-z0-9._/\- ]{1,80})",
+        r"\bSKU\b\s*(?:No\.?|#|:|-)?\s*([A-Za-z0-9][A-Za-z0-9._/\- ]{1,80})",
+    ]
+
+    for index, line in enumerate(lines):
+        has_sku_label = re.search(r"\bSKU\b", line, flags=re.IGNORECASE)
+        has_parenthesized_code = re.search(
+            r"\(\s*[A-Z0-9][A-Z0-9._/\-]{2,80}\s*\)",
+            line,
+        )
+
+        if not has_sku_label and not has_parenthesized_code:
+            continue
+
+        for pattern in sku_patterns:
+            match = re.search(pattern, line, flags=re.IGNORECASE)
+            if match:
+                sku = _clean_extracted_sku(match.group(1))
+                if (
+                    sku
+                    and not re.fullmatch(r"sku", sku, flags=re.IGNORECASE)
+                    and _looks_like_amazon_seller_sku(sku)
+                ):
+                    return sku
+
+        if re.fullmatch(
+            r"(?:Merchant\s+|Seller\s+)?SKU\s*:?",
+            line,
+            flags=re.IGNORECASE,
+        ) and index + 1 < len(lines):
+            sku = _clean_extracted_sku(lines[index + 1])
+            if sku and _looks_like_amazon_seller_sku(sku):
+                return sku
+
+    return None
+
+
+def _extract_amazon_invoice_qty(text: str):
+    text = str(text or "")
+    patterns = [
+        r"\bQty\s*:?\s*(\d+)",
+        r"\bQuantity\s*:?\s*(\d+)",
+        r"\bQty\b\s+(\d+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+    return "1"
+
+
+def _make_sku_overlay(width: float, height: float, sku: str, qty: str):
+    from io import BytesIO
+    from reportlab.lib.colors import black
+    from reportlab.pdfgen import canvas
+
+    packet = BytesIO()
+    overlay = canvas.Canvas(packet, pagesize=(float(width), float(height)))
+    label = f"( {sku or 'NOT FOUND'} ) (Qty: {qty or '1'})"
+    x = 50
+    y = 174.7
+    box_width = 520
+    box_height = 25.3
+
+    overlay.setStrokeColor(black)
+    overlay.setLineWidth(1)
+    overlay.rect(x, y, box_width, box_height, stroke=1, fill=0)
+    overlay.setFillColor(black)
+    overlay.setFont("Times-Bold", 17)
+    overlay.drawString(x + 5, y + 10.3, label[:60])
+    overlay.save()
+    packet.seek(0)
+    return packet
+
+
+def _build_amazon_label_cropper_pdf(input_path: str, output_path: str):
+    from pypdf import PdfReader, PdfWriter
+
+    reader = PdfReader(input_path)
+    writer = PdfWriter()
+    total_pages = len(reader.pages)
+
+    if total_pages < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Amazon PDF must contain label and invoice page pairs.",
+        )
+
+    missing_skus = []
+
+    for label_index in range(0, total_pages, 2):
+        invoice_index = label_index + 1
+
+        if invoice_index >= total_pages:
+            break
+
+        label_page = reader.pages[label_index]
+        invoice_text = reader.pages[invoice_index].extract_text() or ""
+        sku = _extract_amazon_invoice_sku(invoice_text)
+        qty = _extract_amazon_invoice_qty(invoice_text)
+
+        if not sku:
+            missing_skus.append((label_index // 2) + 1)
+            sku = "NOT FOUND"
+
+        width = float(label_page.mediabox.width)
+        height = float(label_page.mediabox.height)
+        overlay_reader = PdfReader(
+            _make_sku_overlay(
+                width,
+                height,
+                sku,
+                qty,
+            )
+        )
+        label_page.merge_page(overlay_reader.pages[0])
+        writer.add_page(label_page)
+
+    if len(writer.pages) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No shipping label pages were found in the uploaded PDF.",
+        )
+
+    with open(output_path, "wb") as output_file:
+        writer.write(output_file)
+
+    return {
+        "label_count": len(writer.pages),
+        "missing_skus": missing_skus,
+    }
+
+
+def _transform_point(matrix, x_value, y_value):
+    a, b, c, d, e, f = matrix
+    return (
+        a * x_value + c * y_value + e,
+        b * x_value + d * y_value + f,
+    )
+
+
+def _multiply_pdf_matrix(left, right):
+    a, b, c, d, e, f = left
+    g, h, i, j, k, l = right
+    return [
+        a * g + b * i,
+        a * h + b * j,
+        c * g + d * i,
+        c * h + d * j,
+        e * g + f * i + k,
+        e * h + f * j + l,
+    ]
+
+
+def _flipkart_page_horizontal_segments(page):
+    from pypdf.generic import ContentStream
+
+    content = page.get_contents()
+    if content is None:
+        return []
+
+    stream = ContentStream(content, page.pdf)
+    matrix = [1, 0, 0, 1, 0, 0]
+    stack = []
+    dash = []
+    current = None
+    segments = []
+
+    for operands, operator in stream.operations:
+        if operator == b"q":
+            stack.append((matrix[:], dash[:]))
+            continue
+
+        if operator == b"Q":
+            if stack:
+                matrix, dash = stack.pop()
+            continue
+
+        if operator == b"cm":
+            matrix = _multiply_pdf_matrix(
+                matrix,
+                [float(value) for value in operands],
+            )
+            continue
+
+        if operator == b"d":
+            dash = list(operands[0]) if operands else []
+            continue
+
+        if operator == b"m":
+            current = _transform_point(
+                matrix,
+                float(operands[0]),
+                float(operands[1]),
+            )
+            continue
+
+        if operator != b"l" or current is None:
+            if operator in (b"h", b"n", b"S", b"s", b"f", b"F", b"f*"):
+                current = None
+            continue
+
+        next_point = _transform_point(
+            matrix,
+            float(operands[0]),
+            float(operands[1]),
+        )
+        x1, y1 = current
+        x2, y2 = next_point
+
+        if abs(y1 - y2) < 1 and abs(x2 - x1) > 20:
+            segments.append(
+                {
+                    "x1": min(x1, x2),
+                    "x2": max(x1, x2),
+                    "y": (y1 + y2) / 2,
+                    "dash": dash[:],
+                }
+            )
+
+        current = next_point
+
+    return segments
+
+
+def _detect_flipkart_separator_y(page):
+    width = float(page.mediabox.width)
+    height = float(page.mediabox.height)
+    segments = _flipkart_page_horizontal_segments(page)
+    dashed_segments = [
+        segment
+        for segment in segments
+        if segment["dash"]
+        and (segment["x2"] - segment["x1"]) >= width * 0.65
+        and height * 0.35 <= segment["y"] <= height * 0.65
+    ]
+
+    if dashed_segments:
+        return max(
+            dashed_segments,
+            key=lambda segment: segment["x2"] - segment["x1"],
+        )["y"]
+
+    full_width_segments = [
+        segment
+        for segment in segments
+        if (segment["x2"] - segment["x1"]) >= width * 0.75
+        and height * 0.35 <= segment["y"] <= height * 0.65
+    ]
+
+    if full_width_segments:
+        return max(
+            full_width_segments,
+            key=lambda segment: segment["y"],
+        )["y"]
+
+    raise HTTPException(
+        status_code=400,
+        detail="Could not detect the Flipkart label separator line.",
+    )
+
+
+def _detect_flipkart_label_bounds(page, separator_y: float):
+    from collections import Counter
+
+    width = float(page.mediabox.width)
+    height = float(page.mediabox.height)
+    segments = _flipkart_page_horizontal_segments(page)
+    label_segments = [
+        segment
+        for segment in segments
+        if separator_y + 2 <= segment["y"] <= height - 20
+        and 160 <= (segment["x2"] - segment["x1"]) <= 260
+    ]
+
+    if not label_segments:
+        return 0, separator_y, width, height
+
+    endpoint_pairs = Counter(
+        (
+            round(segment["x1"] * 4) / 4,
+            round(segment["x2"] * 4) / 4,
+        )
+        for segment in label_segments
+    )
+    left, right = endpoint_pairs.most_common(1)[0][0]
+    top = max(
+        segment["y"]
+        for segment in label_segments
+        if abs(segment["x1"] - left) < 1
+        and abs(segment["x2"] - right) < 1
+    )
+
+    return (
+        max(0, left - 26.25),
+        max(0, separator_y + 3.5),
+        min(width, right + 26.5),
+        min(height, top + 7.25),
+    )
+
+
+def _detect_flipkart_crop_box_fast(page):
+    from collections import Counter
+    from pypdf.generic import ContentStream
+
+    width = float(page.mediabox.width)
+    height = float(page.mediabox.height)
+    content = page.get_contents()
+
+    if content is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read the Flipkart label page content.",
+        )
+
+    stream = ContentStream(content, page.pdf)
+    matrix = [1, 0, 0, 1, 0, 0]
+    stack = []
+    dash = []
+    current = None
+    endpoint_pairs = Counter()
+    endpoint_tops = {}
+    dashed_separator = None
+    full_width_separators = []
+
+    for index, (operands, operator) in enumerate(stream.operations):
+        if operator == b"q":
+            stack.append((matrix[:], dash[:]))
+            continue
+
+        if operator == b"Q":
+            if stack:
+                matrix, dash = stack.pop()
+            continue
+
+        if operator == b"cm":
+            matrix = _multiply_pdf_matrix(
+                matrix,
+                [float(value) for value in operands],
+            )
+            continue
+
+        if operator == b"d":
+            dash = list(operands[0]) if operands else []
+            continue
+
+        if operator == b"m":
+            current = _transform_point(
+                matrix,
+                float(operands[0]),
+                float(operands[1]),
+            )
+            continue
+
+        if operator != b"l" or current is None:
+            if operator in (b"h", b"n", b"S", b"s", b"f", b"F", b"f*"):
+                current = None
+            continue
+
+        next_point = _transform_point(
+            matrix,
+            float(operands[0]),
+            float(operands[1]),
+        )
+        x1, y1 = current
+        x2, y2 = next_point
+        current = next_point
+
+        if abs(y1 - y2) >= 1:
+            continue
+
+        left = min(x1, x2)
+        right = max(x1, x2)
+        y_position = (y1 + y2) / 2
+        line_width = right - left
+
+        if height * 0.35 <= y_position <= height * 0.65:
+            if dash and line_width >= width * 0.65:
+                dashed_separator = y_position
+            elif line_width >= width * 0.75:
+                full_width_separators.append(y_position)
+
+        if y_position >= height * 0.5 and 160 <= line_width <= 260:
+            endpoint_pair = (
+                round(left * 4) / 4,
+                round(right * 4) / 4,
+            )
+            endpoint_pairs[endpoint_pair] += 1
+            endpoint_tops[endpoint_pair] = max(
+                endpoint_tops.get(endpoint_pair, -1),
+                y_position,
+            )
+
+        if (
+            index > 3500
+            and endpoint_pairs
+            and (
+                dashed_separator is not None
+                or full_width_separators
+            )
+        ):
+            break
+
+    if dashed_separator is not None:
+        separator_y = dashed_separator
+    elif full_width_separators:
+        separator_y = max(full_width_separators)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not detect the Flipkart label separator line.",
+        )
+
+    if not endpoint_pairs:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not detect the Flipkart label border.",
+        )
+
+    left, right = endpoint_pairs.most_common(1)[0][0]
+    top = endpoint_tops[(left, right)]
+
+    return (
+        max(0, left - 26.25),
+        max(0, separator_y + 3.5),
+        min(width, right + 26.5),
+        min(height, top + 7.25),
+    )
+
+
+def _build_flipkart_label_cropper_pdf(input_path: str, output_path: str):
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import RectangleObject
+
+    reader = PdfReader(input_path)
+    writer = PdfWriter()
+
+    if len(reader.pages) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Flipkart PDF does not contain any pages.",
+        )
+
+    first_page = reader.pages[0]
+    reusable_crop_box = _detect_flipkart_crop_box_fast(first_page)
+    reusable_page_size = (
+        round(float(first_page.mediabox.width), 2),
+        round(float(first_page.mediabox.height), 2),
+    )
+
+    for page in reader.pages:
+        page_size = (
+            round(float(page.mediabox.width), 2),
+            round(float(page.mediabox.height), 2),
+        )
+
+        if page_size == reusable_page_size:
+            crop_box = reusable_crop_box
+        else:
+            try:
+                crop_box = _detect_flipkart_crop_box_fast(page)
+            except HTTPException:
+                separator_y = _detect_flipkart_separator_y(page)
+                crop_box = _detect_flipkart_label_bounds(
+                    page,
+                    separator_y,
+                )
+        page.cropbox = RectangleObject(crop_box)
+        writer.add_page(page)
+
+    with open(output_path, "wb") as output_file:
+        writer.write(output_file)
+
+    return {
+        "label_count": len(writer.pages),
+    }
+
+
+def _cropped_output_filename(upload_file: UploadFile):
+    clean_name = _clean_upload_filename(
+        upload_file.filename
+    )
+    name_without_extension, _ = os.path.splitext(clean_name)
+    return f"{name_without_extension} - cropped.pdf"
+
+
+@router.post("/label-cropper")
+def label_cropper(
+    flipkart_file: UploadFile = File(None),
+    amazon_file: UploadFile = File(None),
+):
+    if not amazon_file and not flipkart_file:
+        raise HTTPException(
+            status_code=400,
+            detail="Upload a Flipkart or Amazon label PDF.",
+        )
+
+    if amazon_file and flipkart_file:
+        raise HTTPException(
+            status_code=400,
+            detail="Upload one label PDF per request.",
+        )
+
+    if amazon_file and not amazon_file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Amazon label cropper accepts PDF files only.",
+        )
+
+    if flipkart_file and not flipkart_file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Flipkart label cropper accepts PDF files only.",
+        )
+
+    upload_file = amazon_file or flipkart_file
+    input_path = _save_upload(upload_file)
+    timestamp = datetime.now().strftime("%d-%m-%Y_%H%M%S")
+    platform = "amazon" if amazon_file else "flipkart"
+    output_filename = _cropped_output_filename(upload_file)
+    output_path = os.path.join(
+        UPLOAD_FOLDER,
+        f"{platform}_{timestamp}_{output_filename}",
+    )
+
+    try:
+        if amazon_file:
+            _build_amazon_label_cropper_pdf(input_path, output_path)
+        else:
+            _build_flipkart_label_cropper_pdf(input_path, output_path)
+    except ImportError as error:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "PDF tools are missing. Install pypdf and reportlab, then try again."
+            ),
+        ) from error
+
+    return FileResponse(
+        output_path,
+        media_type="application/pdf",
+        filename=output_filename,
+    )
 
 
 @router.get(

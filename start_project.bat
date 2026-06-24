@@ -4,7 +4,11 @@ setlocal
 set "PROJECT_ROOT=%~dp0"
 set "BACKEND_DIR=%PROJECT_ROOT%backend"
 set "FRONTEND_DIR=%PROJECT_ROOT%frontend"
-set "BACKEND_ACTIVATE=%BACKEND_DIR%\venv\Scripts\activate.bat"
+set "BACKEND_VENV=%BACKEND_DIR%\venv"
+if exist "%BACKEND_DIR%\.codex-venv\Scripts\activate.bat" (
+  set "BACKEND_VENV=%BACKEND_DIR%\.codex-venv"
+)
+set "BACKEND_ACTIVATE=%BACKEND_VENV%\Scripts\activate.bat"
 
 if not exist "%BACKEND_ACTIVATE%" (
   echo Backend virtual environment activation file was not found:
@@ -26,7 +30,7 @@ echo Frontend: http://localhost:5173
 echo.
 echo Keep the Backend and Frontend windows open while using the app.
 
-start "Inventory Backend" cmd /k "cd /d ""%BACKEND_DIR%"" && call venv\Scripts\activate.bat && uvicorn app.main:app --reload"
+start "Inventory Backend" cmd /k "cd /d ""%BACKEND_DIR%"" && call ""%BACKEND_ACTIVATE%"" && uvicorn app.main:app --reload"
 start "Inventory Frontend" cmd /k "cd /d ""%FRONTEND_DIR%"" && npm run dev"
 
 endlocal
