@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import {
-  Warehouse,
   Upload,
   FileSpreadsheet,
   Download,
@@ -13,7 +12,6 @@ import {
   X,
   TrendingUp,
   BarChart3,
-  Calendar,
   Layers,
 } from "lucide-react";
 import {
@@ -21,7 +19,6 @@ import {
   BarChart,
   Cell,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -108,7 +105,7 @@ function uniqueSalesAmount(rows) {
   return total;
 }
 
-function WarehouseChartTooltip({ active, payload, label }) {
+function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const item = payload[0]?.payload || {};
 
@@ -133,7 +130,7 @@ function WarehouseChartTooltip({ active, payload, label }) {
   );
 }
 
-function WarehouseDetailTable({ rows }) {
+function DetailTable({ rows }) {
   const sizeColumns = useMemo(() => buildSizeColumns(rows), [rows]);
   const summaryRows = useMemo(() => buildStyleSummary(rows), [rows]);
 
@@ -184,7 +181,7 @@ function WarehouseDetailTable({ rows }) {
   );
 }
 
-function WarehouseDetailModal({ card, onClose, onDownload, downloading }) {
+function DetailModal({ card, onClose, onDownload, downloading }) {
   if (!card) return null;
 
   return (
@@ -203,7 +200,7 @@ function WarehouseDetailModal({ card, onClose, onDownload, downloading }) {
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/80 bg-gradient-to-r from-slate-50 to-[#0F2137]/5 px-6 py-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Flipkart Warehouse Batch
+              Flipkart Batch
             </p>
             <h2
               id="warehouse-detail-title"
@@ -236,13 +233,13 @@ function WarehouseDetailModal({ card, onClose, onDownload, downloading }) {
           </div>
         </div>
 
-        <WarehouseDetailTable rows={card.rows} />
+        <DetailTable rows={card.rows} />
       </div>
     </div>
   );
 }
 
-export default function WarehouseSection() {
+export default function Section() {
   const [file, setFile] = useState(null);
   const [labelFile, setLabelFile] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -276,12 +273,13 @@ export default function WarehouseSection() {
         items: response.data.items || [],
       });
     } catch (error) {
-      console.error("Failed to load Flipkart Warehouse data", error);
+      console.error("Failed to load Flipkart data", error);
     } finally {
       setLoading(false);
     }
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     loadRows();
   }, []);
@@ -363,7 +361,7 @@ export default function WarehouseSection() {
 
   const generateReport = async () => {
     if (!(file instanceof File)) {
-      alert("Select a Flipkart Warehouse CSV or Excel file first.");
+      alert("Select a Flipkart CSV or Excel file first.");
       return;
     }
 
@@ -379,7 +377,7 @@ export default function WarehouseSection() {
 
       setFile(null);
       await loadRows("");
-      alert(response.data.message || "Flipkart Warehouse report generated.");
+      alert(response.data.message || "Flipkart report generated.");
     } catch (error) {
       console.error(error);
       const detail = error.response?.data?.detail;
@@ -392,7 +390,7 @@ export default function WarehouseSection() {
 
   const generateLabels = async () => {
     if (!(labelFile instanceof File)) {
-      alert("Select a Malur Warehouse Label Excel file first.");
+      alert("Select a Malur Label Excel file first.");
       return;
     }
 
@@ -411,7 +409,7 @@ export default function WarehouseSection() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `Malur_Warehouse_Labels_${todayYmd()}.pdf`);
+      link.setAttribute("download", `Malur__Labels_${todayYmd()}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -487,7 +485,7 @@ export default function WarehouseSection() {
             </div>
           </div>
           <h3 className="mt-3 text-3xl font-black text-slate-900">{data.total_orders.toLocaleString()}</h3>
-          <p className="mt-0.5 text-xs text-slate-500 font-medium">Warehouse line orders</p>
+          <p className="mt-0.5 text-xs text-slate-500 font-medium">line orders</p>
         </div>
 
         <div className="glass-panel rounded-2xl p-5 shadow-sm glass-card-hover flex flex-col justify-between">
@@ -498,7 +496,7 @@ export default function WarehouseSection() {
             </div>
           </div>
           <h3 className="mt-3 text-3xl font-black text-slate-900">{data.total_piece_qty.toLocaleString()}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">Warehouse stock units</p>
+          <p className="mt-0.5 text-xs text-slate-500">stock units</p>
         </div>
 
         <div className="glass-panel rounded-2xl p-5 shadow-sm glass-card-hover flex flex-col justify-between">
@@ -532,7 +530,7 @@ export default function WarehouseSection() {
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <BarChart3 size={18} className="text-[#0F2137]" />
-                Date Wise Warehouse Sales
+                Date Wise Sales
               </h3>
               <p className="text-xs text-slate-500">Interactive order volume bar graph with threshold indicators.</p>
             </div>
@@ -592,7 +590,7 @@ export default function WarehouseSection() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#64748B" }} />
                   <YAxis tick={{ fontSize: 11, fill: "#64748B" }} />
-                  <Tooltip content={<WarehouseChartTooltip />} />
+                  <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="orders" name="Orders" radius={[6, 6, 0, 0]}>
                     {visibleChartRows.map((entry, index) => {
                       let color = "#16a34a"; // Green (>20)
@@ -681,14 +679,14 @@ export default function WarehouseSection() {
 
       {/* Upload & Action Cards */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Upload 1: Warehouse Sales Report */}
+        {/* Upload 1: Sales Report */}
         <div className="glass-panel rounded-3xl p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F2137]/10 text-[#0F2137] border border-[#0F2137]/20">
               <Upload size={20} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Upload Warehouse Sales Report</h3>
+              <h3 className="text-base font-bold text-slate-900">Upload Sales Report</h3>
               <p className="text-xs text-slate-500">Upload Flipkart warehouse daily dispatches (CSV / Excel)</p>
             </div>
           </div>
@@ -702,7 +700,7 @@ export default function WarehouseSection() {
             />
             <FileSpreadsheet className="h-10 w-10 text-slate-400 mb-2" />
             <span className="text-sm font-semibold text-slate-800">
-              {file ? file.name : "Click or drag & drop Warehouse Sales file"}
+              {file ? file.name : "Click or drag & drop Sales file"}
             </span>
             <span className="mt-1 text-xs text-slate-500">Supports .csv and .xlsx formats</span>
           </label>
@@ -723,20 +721,20 @@ export default function WarehouseSection() {
               onClick={generateReport}
               className="ml-auto inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50"
             >
-              {generating ? "Generating..." : "Generate Warehouse Report"}
+              {generating ? "Generating..." : "Generate Report"}
             </button>
           </div>
         </div>
 
-        {/* Upload 2: Malur Warehouse Labels */}
+        {/* Upload 2: Malur Labels */}
         <div className="glass-panel rounded-3xl p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-700 border border-blue-200">
               <Download size={20} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Generate Malur Warehouse Labels</h3>
-              <p className="text-xs text-slate-500">Upload Malur Warehouse Label Excel file to produce printable PDF</p>
+              <h3 className="text-base font-bold text-slate-900">Generate Malur Labels</h3>
+              <p className="text-xs text-slate-500">Upload Malur Label Excel file to produce printable PDF</p>
             </div>
           </div>
 
@@ -776,11 +774,11 @@ export default function WarehouseSection() {
         </div>
       </div>
 
-      {/* Saved Warehouse Reports Table (Glass Panel with 30vh scrolling) */}
+      {/* Saved Reports Table (Glass Panel with 30vh scrolling) */}
       <div className="glass-panel rounded-3xl p-6 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">Available Warehouse Report Batches</h3>
+            <h3 className="text-lg font-bold text-slate-900">Available Report Batches</h3>
             <p className="text-xs text-slate-500">View, export, or manage saved warehouse dispatch records.</p>
           </div>
           <div className="flex items-center gap-2">
@@ -873,7 +871,7 @@ export default function WarehouseSection() {
       </div>
 
       {/* Batch Viewer Modal */}
-      <WarehouseDetailModal
+      <DetailModal
         card={selectedCard}
         onClose={() => setSelectedCard(null)}
         onDownload={downloadReportExcel}

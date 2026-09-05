@@ -152,6 +152,12 @@ def get_flipkart_target_date(dispatch_period: str = None) -> date:
     now = datetime.now()
     period = str(dispatch_period or "").strip().lower()
 
+    if period:
+        try:
+            return datetime.strptime(period, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
     if period == "am":
         return now.date()
 
@@ -161,7 +167,7 @@ def get_flipkart_target_date(dispatch_period: str = None) -> date:
             target_date = target_date + timedelta(days=1)
         return target_date
 
-    if now.hour < 12:
+    if now.hour < 14:
         target_date = now.date()
     else:
         target_date = (now + timedelta(days=1)).date()

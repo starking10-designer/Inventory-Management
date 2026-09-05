@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 import axios from "axios";
 import { API_BASE } from "../api.js";
-import { TrendingUp, BarChart3, Download } from "lucide-react";
+import { TrendingUp, BarChart3, Download, Mail, Send, X, ChevronRight, Paperclip, CheckCircle2 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   Bar,
   BarChart,
@@ -71,6 +74,7 @@ function StyleLineTooltip({ active, payload, label }) {
           {item.sizeSummary}
         </p>
       )}
+      
     </div>
   );
 }
@@ -85,6 +89,9 @@ export default function SalesSection() {
   const [viewMode, setViewMode] = useState("monthly");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [isMailPopupOpen, setIsMailPopupOpen] = useState(false);
+  const [mailData, setMailData] = useState({ to: "", cc: "", subject: "" });
+  const [sendingMail, setSendingMail] = useState(false);
 
   const loadSales = async () => {
     setLoading(true);
@@ -121,44 +128,96 @@ export default function SalesSection() {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSales();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportDate, platform, viewMode]);
-  const downloadSalesReport = async () => {
-    setDownloading(true);
-    try {
-      const response = await axios.get(
-        `${API_BASE}/sales-pivot-analytics/export`,
-        {
-          params: {
-            platform,
-            report_type: "style-color-wise",
-            all_dates: true,
-          },
-          responseType: "blob",
-        },
-      );
+    const generateExcelBlob = () => {
+    const rows = [["Platform", "Total orders", "Total piece quantity", "Total invoice amount"]];
+    summaryRows.forEach(row => {
+      rows.push([row.platform, row.total_orders, row.total_piece_qty, row.total_invoice_amount]);
+    });
+    const totOrders = platform === "All" ? dailyData.total_orders : summaryRows.reduce((sum, row) => sum + row.total_orders, 0);
+    const totQty = platform === "All" ? dailyData.grand_total : summaryRows.reduce((sum, row) => sum + row.total_piece_qty, 0);
+    const totAmt = platform === "All" ? dailyData.total_invoice_amount : summaryRows.reduce((sum, row) => sum + row.total_invoice_amount, 0);
+    rows.push(["Total", totOrders, totQty, totAmt]);
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Platform Totals");
+    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    return new Blob([wbout], { type: 'application/octet-stream' });
+  };
 
-      const blob = new Blob([response.data], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  const handleSendMail = async (e) => {
+    e.preventDefault();
+    const storedAppPass = localStorage.getItem("googleAppPassword");
+    const storedAuth = JSON.parse(localStorage.getItem("admin_auth_data") || "{}");
+    const sessionAuth = JSON.parse(localStorage.getItem("admin_session") || "{}");
+    const fromEmail = storedAuth.email || sessionAuth.email || "";
+    if (!storedAppPass || !fromEmail) {
+      alert("Please configure your email and Google App Password in the Profile section first.");
+      return;
+    }
+    if (!dailyData) {
+      alert("No data to send.");
+      return;
+    }
+    setSendingMail(true);
+    try {
+      const blob = generateExcelBlob();
+      const formData = new FormData();
+      formData.append("from_email", fromEmail);
+      formData.append("app_password", storedAppPass);
+      formData.append("to_email", mailData.to);
+      formData.append("cc_email", mailData.cc);
+      formData.append("subject", mailData.subject || `Sales Performance - ${reportDate}`);
+      formData.append("file", blob, `Sales_Overview_${reportDate}.xlsx`);
+      
+      await axios.post(`${API_BASE}/api/system/send-email`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
       });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute(
-        "download",
-        `style_color_wise_all_dates_${platform.toLowerCase()}.xlsx`,
-      );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      alert("Mail sent successfully!");
+      setIsMailPopupOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send mail. Please check your App Password.");
+    } finally {
+      setSendingMail(false);
+    }
+  };
+
+  const downloadSalesReport = () => {
+    if (!dailyData) {
+      alert("No data to download");
+      return;
+    }
+    try {
+      const rows = [["Platform", "Total orders", "Total piece quantity", "Total invoice amount"]];
+      
+      summaryRows.forEach(row => {
+        rows.push([
+          row.platform,
+          row.total_orders,
+          row.total_piece_qty,
+          row.total_invoice_amount
+        ]);
+      });
+      
+      const totOrders = platform === "All" ? dailyData.total_orders : summaryRows.reduce((sum, row) => sum + row.total_orders, 0);
+      const totQty = platform === "All" ? dailyData.grand_total : summaryRows.reduce((sum, row) => sum + row.total_piece_qty, 0);
+      const totAmt = platform === "All" ? dailyData.total_invoice_amount : summaryRows.reduce((sum, row) => sum + row.total_invoice_amount, 0);
+      
+      rows.push(["Total", totOrders, totQty, totAmt]);
+
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Platform Totals");
+      
+      XLSX.writeFile(workbook, `Sales_Overview_${reportDate}.xlsx`);
     } catch (e) {
       console.error(e);
       alert("Download failed");
-    } finally {
-      setDownloading(false);
     }
   };
 
@@ -216,16 +275,36 @@ export default function SalesSection() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900">
-            <TrendingUp className="text-[#0F2137]" size={24} />
-            Sales Performance Overview
-          </h2>
-          <p className="text-slate-500 text-xs mt-1">
-            Platform totals for selected date with Style Wise & Color Wise dispatches.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900">
+              <TrendingUp className="text-[#0F2137]" size={24} />
+              Sales Performance Overview
+            </h2>
+            <p className="text-slate-500 text-xs mt-1">
+              Platform totals for selected date with Style Wise & Color Wise dispatches.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setMailData(prev => ({ ...prev, subject: `Sales Performance - ${reportDate}` }));
+                setIsMailPopupOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-all"
+            >
+              <Mail size={16} /> Send Mail
+            </button>
+            <Link
+              to="/sales-analytics-report"
+              className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-2 text-xs font-bold text-white shadow-sm hover:from-[#1E3A66] hover:to-[#0F2137] transition-all"
+            >
+              Detailed Analytics Page
+              <ChevronRight size={14} />
+            </Link>
+          </div>
+                  <div className="flex flex-wrap gap-3 items-end">
+            
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-1 text-xs font-bold text-slate-600">
               Report Date
@@ -532,6 +611,118 @@ export default function SalesSection() {
             </>
           )}
         </>
+      )}
+      {isMailPopupOpen && createPortal(
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md">
+          <div className="w-full max-w-[480px] rounded-3xl bg-white shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] overflow-hidden animate-in fade-in zoom-in-95 duration-200 relative">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-gradient-to-br from-slate-50 to-white border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 shadow-inner">
+                  <Mail size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Compose Mail</h3>
+                  <p className="text-xs font-medium text-slate-500">Send the generated sales overview</p>
+                </div>
+              </div>
+              <button onClick={() => setIsMailPopupOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSendMail} className="p-6 space-y-5">
+              
+              <div className="space-y-4 relative">
+                {/* Connecting Line for visual flow */}
+                <div className="absolute left-[15px] top-8 bottom-12 w-0.5 bg-slate-100 rounded-full z-0"></div>
+
+                <div className="relative z-10 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 text-[10px] font-bold uppercase tracking-wider shadow-sm border border-white">From</div>
+                  <input
+                    type="email"
+                    value={JSON.parse(localStorage.getItem("admin_auth_data") || "{}").email || JSON.parse(localStorage.getItem("admin_session") || "{}").email || ""}
+                    readOnly
+                    className="flex-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 px-4 text-sm font-medium text-slate-500 cursor-not-allowed shadow-sm"
+                  />
+                </div>
+
+                <div className="relative z-10 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-[10px] font-bold uppercase tracking-wider shadow-sm border border-white">To</div>
+                  <input
+                    type="email"
+                    required
+                    value={mailData.to}
+                    onChange={(e) => setMailData({ ...mailData, to: e.target.value })}
+                    placeholder="Recipient email address"
+                    className="flex-1 w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm placeholder:font-medium placeholder:text-slate-400"
+                  />
+                </div>
+                
+                <div className="relative z-10 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 text-[10px] font-bold uppercase tracking-wider shadow-sm border border-white">CC</div>
+                  <input
+                    type="text"
+                    value={mailData.cc}
+                    onChange={(e) => setMailData({ ...mailData, cc: e.target.value })}
+                    placeholder="Optional, comma separated"
+                    className="flex-1 w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm placeholder:font-medium placeholder:text-slate-400"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <label className="block text-xs font-bold text-slate-600 mb-2">Subject</label>
+                <input
+                  type="text"
+                  required
+                  value={mailData.subject}
+                  onChange={(e) => setMailData({ ...mailData, subject: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm"
+                />
+              </div>
+
+              {/* Attachment card */}
+              <div className="mt-4 p-3.5 rounded-2xl border border-emerald-100 bg-emerald-50/50 flex items-center justify-between group hover:border-emerald-200 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+                    <Paperclip size={18} />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700/80 mb-0.5">Attachment Ready</p>
+                    <p className="text-sm font-bold text-emerald-900">Sales_Overview_{reportDate}.xlsx</p>
+                  </div>
+                </div>
+                <CheckCircle2 size={20} className="text-emerald-500 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </div>
+
+              {/* Actions */}
+              <div className="pt-6 mt-2 border-t border-slate-100 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsMailPopupOpen(false)}
+                  className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sendingMail}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  {sendingMail ? "Sending..." : (
+                    <>
+                      <Send size={16} /> Send Email
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -1,45 +1,87 @@
 import { useState } from "react";
-import { Lock, User, Eye, EyeOff, ShieldCheck, ArrowRight } from "lucide-react";
+import { Lock, User, Mail, Eye, EyeOff, ShieldCheck, ArrowRight } from "lucide-react";
+import { API_BASE } from "../api.js";
 
 export default function LoginPage({ onLoginSuccess }) {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    setTimeout(() => {
-      // Retrieve stored credentials from localStorage, or fallback to default
-      const storedAuth = JSON.parse(
-        localStorage.getItem("admin_auth_data") || "{}"
-      );
-      const validUsername = storedAuth.username || "Admin";
-      const validPassword = storedAuth.password || "Admin@inventorymanagement";
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', email); // backend still expects 'username' field, but it will be the email string
+      formData.append('password', password);
 
-      if (
-        username.trim() === validUsername &&
-        password === validPassword
-      ) {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Invalid credentials");
+      }
+
+      const data = await response.json();
+      
+      const sessionUser = {
+        username: data.user?.username,
+        displayName: data.user?.displayName,
+        email: data.user?.email,
+        mobileNumber: data.user?.mobileNumber,
+        role: "System Administrator",
+        loginTime: new Date().toISOString(),
+      };
+
+      // Set the token for future API calls!
+      localStorage.setItem("admin_token", data.access_token);
+
+      // Also set the brand in localStorage so it matches Profile Section logic
+      localStorage.setItem("brandName", data.brand?.brandName || "");
+      localStorage.setItem("gstNumber", data.brand?.gstNumber || "");
+      localStorage.setItem("brandAddress", data.brand?.brandAddress || "");
+      localStorage.setItem("appIcon", data.brand?.appIcon || "");
+      
+      localStorage.setItem("admin_session", JSON.stringify(sessionUser));
+      
+      // Fallback auth save for Profile compatibility
+      localStorage.setItem("admin_auth_data", JSON.stringify({
+         username: data.user.username,
+         password: password,
+         displayName: data.user.displayName,
+         email: data.user.email,
+         mobileNumber: data.user.mobileNumber
+      }));
+
+      onLoginSuccess(sessionUser);
+    } catch (err) {
+      console.error("Login API failed, attempting offline fallback...", err);
+      // Fallback
+      const storedAuth = JSON.parse(localStorage.getItem("admin_auth_data") || "{}");
+      if (email.trim() === storedAuth.email && password === storedAuth.password) {
         const sessionUser = {
-          username: validUsername,
-          displayName: storedAuth.displayName || "Admin",
-          email: storedAuth.email || "admin@inventorymanagement.com",
+          username: storedAuth.username,
+          displayName: storedAuth.displayName,
+          email: storedAuth.email,
           role: "System Administrator",
           loginTime: new Date().toISOString(),
         };
-
         localStorage.setItem("admin_session", JSON.stringify(sessionUser));
         onLoginSuccess(sessionUser);
       } else {
-        setError("Invalid username or password. Please check your credentials.");
+        setError(err.message || "Invalid email or password.");
       }
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   };
 
   return (
@@ -60,7 +102,7 @@ export default function LoginPage({ onLoginSuccess }) {
             Admin Portal
           </h1>
           <p className="mt-1.5 text-xs text-slate-500 font-medium">
-            I&D E-Commerce Operations & Inventory Management
+            Welcome to the E-commerce Inventory Central
           </p>
         </div>
 
@@ -74,18 +116,18 @@ export default function LoginPage({ onLoginSuccess }) {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-              Username
+              Email Address
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <User size={18} />
+                <Mail size={18} />
               </div>
               <input
-                type="text"
+                type="email"
                 required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter email address"
                 className="w-full rounded-2xl border border-slate-200/80 bg-white/80 py-3 pl-10 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 shadow-xs backdrop-blur-md transition"
               />
             </div>

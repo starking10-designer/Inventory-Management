@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link,  } from "react-router-dom";
 import axios from "axios";
 import {
   Upload,
@@ -10,36 +10,26 @@ import {
   Trash2,
   AlertTriangle,
   Tag,
-  TrendingUp,
-  BarChart3,
   Scissors,
   Home,
   FileText,
   Layers,
-  MapPin,
-  CheckCircle2,
-  Printer,
   Calendar,
-  DollarSign,
   Share2,
   ThumbsUp,
   Star,
-  RefreshCw,
-  ExternalLink,
-  Search,
   User,
-  Bell,
   Menu,
   X,
-  Sparkles,
   LogOut,
-  ShieldCheck,
-} from "lucide-react";
+  Save,
+  } from "lucide-react";
 import { API_BASE } from "./api.js";
 import SalesSection from "./components/SalesSection.jsx";
 import WarehouseSection from "./components/WarehouseSection.jsx";
 import DailyReportSection from "./components/DailyReportSection.jsx";
 import LoginPage from "./components/LoginPage.jsx";
+import RegisterPage from "./components/RegisterPage.jsx";
 import ProfileSection from "./components/ProfileSection.jsx";
 import {
   FlipkartIcon,
@@ -125,7 +115,8 @@ const buildUnknownSkuRows = (items) =>
     quantity: item.quantity || 0,
     style: "",
     size: "",
-    pieces: Array.from({ length: 5 }, () => ({ color: "" })),
+    pack_of: "",
+    pieces: [],
   }));
 
 const UNKNOWN_SKU_SIZE_OPTIONS = ["S", "M", "L", "XL", "2XL"];
@@ -190,7 +181,7 @@ function App() {
     if (session) {
       try {
         return JSON.parse(session);
-      } catch (e) {
+      } catch (e) { console.error(e);
         return null;
       }
     }
@@ -199,6 +190,22 @@ function App() {
 
   const [appIcon, setAppIcon] = useState(localStorage.getItem("appIcon"));
   const [profilePicture, setProfilePicture] = useState(localStorage.getItem("profilePicture"));
+  const [brandName, setBrandName] = useState(localStorage.getItem("brandName") || "I&D");
+  const [isRegistered, setIsRegistered] = useState(null);
+
+  useEffect(() => {
+    // Check if the system is registered via product key
+    axios.get(`${API_BASE}/api/system/status`)
+      .then(res => {
+        setIsRegistered(res.data.is_registered);
+      })
+      .catch(err => {
+        console.error("Backend not reachable or status failed:", err);
+        // Fallback to true if you don't want to block them when offline, or false to force registration
+        // Using false as this is the new default flow
+        setIsRegistered(false);
+      });
+  }, []);
 
   useEffect(() => {
     if (appIcon) {
@@ -223,9 +230,23 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [flipkartFile, setFlipkartFile] = useState(null);
-  const [flipkartDispatchPeriod, setFlipkartDispatchPeriod] = useState(() =>
-    new Date().getHours() >= 12 ? "pm" : "am",
-  );
+
+  const getDefaultFlipkartDate = () => {
+    const now = new Date();
+    let target = new Date(now);
+    if (now.getHours() >= 14) {
+      target.setDate(target.getDate() + 1);
+    }
+    if (target.getDay() === 0) {
+      target.setDate(target.getDate() + 1);
+    }
+    const yyyy = target.getFullYear();
+    const mm = String(target.getMonth() + 1).padStart(2, "0");
+    const dd = String(target.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const [flipkartDispatchDate, setFlipkartDispatchDate] = useState(getDefaultFlipkartDate());
   const [amazonFile, setAmazonFile] = useState(null);
   const [ajioFile, setAjioFile] = useState(null);
   const [meeshoFile, setMeeshoFile] = useState(null);
@@ -252,12 +273,7 @@ function App() {
   const [unknownSkuRows, setUnknownSkuRows] = useState([]);
   const [unknownSkuRetryAction, setUnknownSkuRetryAction] = useState(null);
   const [unknownSkuSaving, setUnknownSkuSaving] = useState(false);
-  const [skuMasterOptions, setSkuMasterOptions] = useState({
-    styles: [],
-    sizes: [],
-    colors: [],
-    colorsByPosition: [],
-  });
+  const [skuMasterOptions, setSkuMasterOptions] = useState({ columns: {} });
 
   const [alerts, setAlerts] = useState({
     count: 0,
@@ -403,25 +419,34 @@ function App() {
     return `${baseName} sorted.pdf`;
   };
 
-  const showUnknownSkuPopup = (detail, retryAction) => {
-    setUnknownSkuRows(buildUnknownSkuRows(detail.skus));
+  const showUnknownSkuPopup = async (detail, retryAction) => {
+    const cols = await fetchSkuMasterOptions();
+    setUnknownSkuRows(detail.skus.map((item) => {
+      const row = {
+        platform: item.platform || "Common",
+        sku: item.sku || "",
+        normalized_sku: item.normalized_sku || "",
+        quantity: item.quantity || 0
+      };
+      if (cols) {
+        Object.keys(cols).forEach(colName => {
+            row[colName] = "";
+        });
+      }
+      return row;
+    }));
     setUnknownSkuRetryAction(retryAction);
-    fetchSkuMasterOptions();
   };
 
   const fetchSkuMasterOptions = async () => {
     try {
       const { data } = await axios.get(`${API_BASE}/sku-master/options`);
-      setSkuMasterOptions({
-        styles: Array.isArray(data.styles) ? data.styles : [],
-        sizes: Array.isArray(data.sizes) ? data.sizes : [],
-        colors: Array.isArray(data.colors) ? data.colors : [],
-        colorsByPosition: Array.isArray(data.colors_by_position)
-          ? data.colors_by_position
-          : [],
-      });
+      const cols = data.columns || {};
+      setSkuMasterOptions({ columns: cols });
+      return cols;
     } catch (error) {
       console.error("Failed to load SKU master options", error);
+      return {};
     }
   };
 
@@ -462,15 +487,12 @@ function App() {
   const saveUnknownSkus = async () => {
     setUnknownSkuSaving(true);
     try {
-      const payload = unknownSkuRows.map((row) => ({
-        platform: row.platform || "Common",
-        sku: row.sku,
-        style: row.style,
-        size: row.size,
-        pieces: row.pieces
-          .filter((piece) => piece.color)
-          .map((piece) => ({ color: piece.color })),
-      }));
+      const payload = unknownSkuRows.map((row) => {
+        const item = { ...row };
+        delete item.quantity;
+        delete item.normalized_sku;
+        return item;
+      });
 
       await axios.post(`${API_BASE}/sku-master/manual`, payload);
       await fetchCurrentSkuMaster();
@@ -788,7 +810,7 @@ function App() {
     setReportBusy(true);
     try {
       const formData = buildMarketplaceFormData(files, {
-        flipkartDispatchPeriod,
+        flipkartDispatchDate,
       });
       formData.append(
         "include_detail_columns",
@@ -829,7 +851,7 @@ function App() {
     setReportBusy(true);
     try {
       const formData = buildMarketplaceFormData(files, {
-        flipkartDispatchPeriod,
+        flipkartDispatchDate,
       });
       const { data } = await axios.post(
         `${API_BASE}/generate-final-report`,
@@ -855,24 +877,7 @@ function App() {
     }
   };
 
-  const uploadSkuMaster = async () => {
-    if (!(skuMasterFile instanceof File)) {
-      alert("Please select a valid SKU file");
-      return;
-    }
-
-    try {
-      const formData = new FormData();
-      formData.append("file", skuMasterFile, skuMasterFile.name);
-      await axios.post(`${API_BASE}/upload-file`, formData);
-      alert("SKU Master Uploaded Successfully");
-      await fetchCurrentSkuMaster();
-      setSkuMasterFile(null);
-    } catch (error) {
-      console.error(error);
-      alert(await getUploadErrorMessage(error, "SKU Master upload failed"));
-    }
-  };
+  
 
   const fetchCurrentSkuMaster = async () => {
     try {
@@ -915,18 +920,7 @@ function App() {
     };
   }, []);
 
-  const deleteSkuMaster = async () => {
-    if (!window.confirm("Are you sure you want to delete the active SKU master?")) return;
-    try {
-      await axios.delete(`${API_BASE}/delete-sku-master`);
-      setActiveSkuMaster(null);
-      setSkuMasterFile(null);
-      alert("SKU Master Deleted");
-    } catch (error) {
-      console.error(error);
-      alert("Failed to delete SKU master");
-    }
-  };
+  
 
   const selectMarketplaceFile = async (item, file) => {
     if (!file) return;
@@ -988,6 +982,7 @@ function App() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     loadStockAlerts();
     loadSalesSummary();
@@ -1083,6 +1078,24 @@ function App() {
   };
 
   // If not authenticated, render Login Page
+  if (isRegistered === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="h-12 w-12 border-4 border-slate-300 border-t-slate-900 rounded-full animate-spin mb-4"></div>
+          <p className="text-slate-500 font-bold">Checking system status...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isRegistered === false) {
+    return <RegisterPage onRegisterSuccess={(sessionUser) => {
+      setIsRegistered(true);
+      if (sessionUser) setUser(sessionUser);
+    }} />;
+  }
+
   if (!user) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
@@ -1231,7 +1244,7 @@ function App() {
                 {getSectionTitle()}
               </h1>
               <p className="text-xs text-slate-500 font-medium hidden sm:block">
-                I&D E-Commerce Operations & Inventory Central
+                {brandName || "I&D"} E-Commerce & Inventory Central
               </p>
             </div>
           </div>
@@ -1345,15 +1358,7 @@ function App() {
 
               {/* Sales Performance Card */}
               <div className="glass-panel rounded-3xl p-6 shadow-sm">
-                <div className="mb-4 flex justify-end">
-                  <Link
-                    to="/sales-analytics-report"
-                    className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-2 text-xs font-bold text-white shadow-sm hover:from-[#1E3A66] hover:to-[#0F2137] transition"
-                  >
-                    Detailed Analytics Page
-                    <ChevronRight size={14} />
-                  </Link>
-                </div>
+
 
                 <SalesSection />
               </div>
@@ -1423,37 +1428,23 @@ function App() {
                           Upload daily orders
                         </p>
 
-                        {item.key === "flipkart" && (
-                          <div className="mt-3 inline-flex rounded-lg border border-slate-200/80 bg-white/90 p-1 text-xs font-semibold shadow-xs">
-                            {[
-                              ["am", "AM"],
-                              ["pm", "PM"],
-                            ].map(([value, label]) => (
-                              <button
-                                key={value}
-                                type="button"
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  setFlipkartDispatchPeriod(value);
-                                }}
-                                className={`rounded-md px-2.5 py-1 text-xs font-bold transition ${
-                                  flipkartDispatchPeriod === value
-                                    ? "bg-[#0F2137] text-white shadow-xs"
-                                    : "text-slate-600 hover:bg-slate-100"
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
                         {item.state && (
                           <div className="mt-3 truncate rounded-lg border border-emerald-200 bg-emerald-50/90 px-2.5 py-1.5 text-xs font-semibold text-emerald-800">
                             ✓ {item.state.name}
                           </div>
                         )}
                       </label>
+                      {item.key === "flipkart" && (
+                        <div className="mt-3 flex items-center bg-white/90 rounded-lg border border-slate-200/80 p-1.5 shadow-xs w-max relative z-10">
+                          <Calendar size={14} className="text-slate-500 mr-2 ml-1" />
+                          <input
+                            type="date"
+                            value={flipkartDispatchDate}
+                            onChange={(e) => setFlipkartDispatchDate(e.target.value)}
+                            className="bg-transparent text-slate-700 text-xs font-semibold outline-none cursor-pointer"
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1737,6 +1728,7 @@ function App() {
               setAppIcon={setAppIcon}
               setProfilePicture={setProfilePicture}
               profilePicture={profilePicture}
+              setAppBrandName={setBrandName}
             />
           )}
         </main>
@@ -1932,15 +1924,15 @@ function App() {
 
       {/* 3. Unknown SKU Modal */}
       {unknownSkuRows.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md px-4">
-          <div className="w-full max-w-5xl max-h-[88vh] overflow-hidden rounded-3xl bg-white/95 shadow-2xl border border-white/90 flex flex-col backdrop-blur-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5 bg-[#0F2137]/5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md px-4">
+          <div className="w-full max-w-[85vw] h-[80vh] max-h-[85vh] overflow-hidden rounded-[2.5rem] bg-white shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border border-slate-100 flex flex-col">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-10 py-8 bg-white z-10">
               <div>
-                <div className="flex items-center gap-2 text-[#0F2137] font-bold text-base">
-                  <AlertTriangle size={20} />
+                <div className="flex items-center gap-3 text-slate-800 font-black text-2xl tracking-tight">
+                  <AlertTriangle size={28} className="text-rose-500 drop-shadow-sm" />
                   Unknown SKU Detected
                 </div>
-                <p className="text-xs text-slate-600 mt-1">
+                <p className="text-base text-slate-500 mt-2 font-medium">
                   Add the missing SKU details to master dictionary to proceed with final report generation.
                 </p>
               </div>
@@ -1948,103 +1940,67 @@ function App() {
                 type="button"
                 onClick={closeUnknownSkuPopup}
                 disabled={unknownSkuSaving}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                className="rounded-2xl bg-slate-100 px-6 py-3 text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors shadow-sm"
               >
                 Close
               </button>
             </div>
 
-            <div className="overflow-y-auto px-6 py-5 space-y-5">
+            <div className="overflow-y-auto px-10 py-8 space-y-6 flex-1 bg-slate-50/50">
               {unknownSkuRows.map((row, rowIndex) => (
                 <div
                   key={`${row.platform}-${row.normalized_sku}-${rowIndex}`}
-                  className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4"
+                  className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm hover:shadow-md transition-all duration-200"
                 >
-                  <div className="mb-4 flex flex-wrap items-center gap-3 text-xs font-semibold">
-                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-slate-900 border border-slate-200 font-mono font-bold shadow-xs">
-                      <Tag size={14} />
+                  <div className="mb-8 flex flex-wrap items-center gap-4 text-sm font-semibold border-b border-slate-100 pb-5">
+                    <span className="inline-flex items-center gap-2 rounded-2xl bg-blue-50 px-5 py-2.5 text-blue-700 font-mono font-bold shadow-sm">
+                      <Tag size={16} />
                       {row.sku}
                     </span>
-                    <span className="rounded-lg bg-white px-3 py-1.5 text-slate-600 border border-slate-200 shadow-xs">
-                      Platform: {row.platform}
+                    <span className="rounded-2xl bg-slate-100 px-5 py-2.5 text-slate-500 shadow-sm">
+                      Platform: <span className="text-slate-800 font-bold ml-1">{row.platform}</span>
                     </span>
-                    <span className="rounded-lg bg-white px-3 py-1.5 text-slate-600 border border-slate-200 shadow-xs">
-                      Qty: {row.quantity}
+                    <span className="rounded-2xl bg-slate-100 px-5 py-2.5 text-slate-500 shadow-sm">
+                      Qty: <span className="text-slate-800 font-bold ml-1">{row.quantity}</span>
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="text-xs font-bold text-slate-700">
+                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-6">
+                    <label className="text-sm font-bold text-slate-600">
                       SKU
                       <input
                         type="text"
                         value={row.sku}
                         readOnly
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-100/90 px-3 py-2 text-xs text-slate-600 cursor-not-allowed"
+                        className="mt-2.5 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm text-slate-400 font-mono cursor-not-allowed shadow-inner"
                       />
                     </label>
-                    <label className="text-xs font-bold text-slate-700">
-                      Style
-                      <ComboTextInput
-                        value={row.style}
-                        onChange={(value) =>
-                          updateUnknownSkuRow(rowIndex, "style", value)
-                        }
-                        options={skuMasterOptions.styles}
-                        className="mt-1 w-full rounded-xl border border-slate-300/80 bg-white py-2 pl-3 pr-10 text-xs focus:ring-2 focus:ring-slate-800 focus:outline-none"
-                      />
-                    </label>
-                    <label className="text-xs font-bold text-slate-700">
-                      Size
-                      <ComboTextInput
-                        value={row.size}
-                        onChange={(value) =>
-                          updateUnknownSkuRow(rowIndex, "size", value)
-                        }
-                        options={UNKNOWN_SKU_SIZE_OPTIONS}
-                        className="mt-1 w-full rounded-xl border border-slate-300/80 bg-white py-2 pl-3 pr-10 text-xs focus:ring-2 focus:ring-slate-800 focus:outline-none"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-                    {row.pieces.map((piece, pieceIndex) => (
-                      <div
-                        key={pieceIndex}
-                        className="rounded-xl border border-slate-200/80 bg-white/90 p-2.5 shadow-xs"
-                      >
-                        <label className="text-[11px] font-bold text-slate-600">
-                          Color {pieceIndex + 1}
+                    {Object.keys(skuMasterOptions.columns || {})
+                      .filter((colName) => !['color2', 'color3', 'color4', 'color5'].includes(colName))
+                      .map((colName) => (
+                        <label key={colName} className="text-sm font-bold text-slate-600 capitalize">
+                          {colName.replace(/_/g, ' ')}
                           <ComboTextInput
-                            value={piece.color}
+                            value={row[colName] || ""}
                             onChange={(value) =>
-                              updateUnknownSkuPiece(
-                                rowIndex,
-                                pieceIndex,
-                                "color",
-                                value,
-                              )
+                              updateUnknownSkuRow(rowIndex, colName, value)
                             }
-                            options={
-                              skuMasterOptions.colorsByPosition[pieceIndex] ||
-                              []
-                            }
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-2 pr-8 text-xs focus:ring-2 focus:ring-slate-800 focus:outline-none"
+                            options={skuMasterOptions.columns[colName] || []}
+                            className="mt-2.5 w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-4 pr-10 text-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:outline-none transition-all shadow-sm"
                           />
                         </label>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200/80 px-6 py-4 bg-slate-50/60">
+            <div className="flex flex-wrap justify-end gap-4 border-t border-slate-100 px-10 py-6 bg-white z-10">
               <button
                 type="button"
                 onClick={closeUnknownSkuPopup}
                 disabled={unknownSkuSaving}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 shadow-xs"
+                className="rounded-2xl border border-slate-200 bg-white px-8 py-3.5 text-sm font-bold text-slate-600 hover:bg-slate-50 shadow-sm transition-all hover:shadow focus:ring-4 focus:ring-slate-100"
               >
                 Cancel
               </button>
@@ -2052,9 +2008,19 @@ function App() {
                 type="button"
                 onClick={saveUnknownSkus}
                 disabled={unknownSkuSaving}
-                className="rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-5 py-2 text-xs font-bold text-white hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-60 shadow-sm"
+                className="rounded-2xl bg-blue-600 px-8 py-3.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60 shadow-md hover:shadow-lg transition-all flex items-center gap-2 focus:ring-4 focus:ring-blue-500/20"
               >
-                {unknownSkuSaving ? "Saving..." : "Save and Generate Report"}
+                {unknownSkuSaving ? (
+                  <>
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={18} />
+                    Save & Generate Report
+                  </>
+                )}
               </button>
             </div>
           </div>

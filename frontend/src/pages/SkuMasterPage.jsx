@@ -17,7 +17,7 @@ import {
 import { API_BASE } from "../api.js";
 import ExcelHeaderFilter from "../components/ExcelHeaderFilter.jsx";
 
-const EMPTY_ROW = { id: null, platform: "Common", sku: "", style: "", size: "", pack_of: "", full_color: "", main_product_type: "", pieces: [] };
+const EMPTY_ROW = { id: null, platform: "Common", sku: "", style: "", size: "", pack_of: "", main_product_type: "", pieces: [] };
 const rowKey = (row) => row._key || row.id;
 
 function errorMessage(error, fallback) {
@@ -39,17 +39,8 @@ export default function SkuMasterPage() {
   const [deletingMaster, setDeletingMaster] = useState(false);
 
   // Excel Column Filters State
-  const [selectedPlatforms, setSelectedPlatforms] = useState([]);
-  const [selectedStyles, setSelectedStyles] = useState([]);
-  const [selectedSizes, setSelectedSizes] = useState([]);
-  const [selectedPackOff, setSelectedPackOff] = useState([]);
-  const [selectedFullColor, setSelectedFullColor] = useState([]);
-  const [selectedMainProductType, setSelectedMainProductType] = useState([]);
-  const [selectedColor1, setSelectedColor1] = useState([]);
-  const [selectedColor2, setSelectedColor2] = useState([]);
-  const [selectedColor3, setSelectedColor3] = useState([]);
-  const [selectedColor4, setSelectedColor4] = useState([]);
-  const [selectedColor5, setSelectedColor5] = useState([]);
+  const [columns, setColumns] = useState([]);
+  const [columnFilters, setColumnFilters] = useState({});
   const [sortField, setSortField] = useState("sku");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -61,6 +52,7 @@ export default function SkuMasterPage() {
         axios.get(`${API_BASE}/current-sku-master`),
       ]);
       setRows(Array.isArray(rowsRes.data.items) ? rowsRes.data.items : []);
+      setColumns(Array.isArray(rowsRes.data.columns) ? rowsRes.data.columns : []);
       setActiveSkuMaster(currentRes.data?.filename || null);
     } catch (error) {
       console.error(error);
@@ -152,61 +144,37 @@ export default function SkuMasterPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Unique lists for filters
-  const uniquePlatforms = useMemo(() => Array.from(new Set(rows.map((r) => r.platform || "Common"))).sort(), [rows]);
-  const uniqueStyles = useMemo(() => Array.from(new Set(rows.map((r) => r.style).filter(Boolean))).sort(), [rows]);
-  const uniqueSizes = useMemo(() => Array.from(new Set(rows.map((r) => r.size).filter(Boolean))).sort(), [rows]);
-  const uniquePackOff = useMemo(() => Array.from(new Set(rows.map((r) => r.pack_of).filter(Boolean))).sort(), [rows]);
-  const uniqueFullColor = useMemo(() => Array.from(new Set(rows.map((r) => r.full_color).filter(Boolean))).sort(), [rows]);
-  const uniqueMainProductType = useMemo(() => Array.from(new Set(rows.map((r) => r.main_product_type).filter(Boolean))).sort(), [rows]);
-  const uniqueColor1 = useMemo(() => Array.from(new Set(rows.map((r) => r.pieces?.[0]?.color).filter(Boolean))).sort(), [rows]);
-  const uniqueColor2 = useMemo(() => Array.from(new Set(rows.map((r) => r.pieces?.[1]?.color).filter(Boolean))).sort(), [rows]);
-  const uniqueColor3 = useMemo(() => Array.from(new Set(rows.map((r) => r.pieces?.[2]?.color).filter(Boolean))).sort(), [rows]);
-  const uniqueColor4 = useMemo(() => Array.from(new Set(rows.map((r) => r.pieces?.[3]?.color).filter(Boolean))).sort(), [rows]);
-  const uniqueColor5 = useMemo(() => Array.from(new Set(rows.map((r) => r.pieces?.[4]?.color).filter(Boolean))).sort(), [rows]);
+  // Dynamic unique lists for filters
+  const uniqueValues = useMemo(() => {
+    const vals = {};
+    columns.forEach(col => {
+      vals[col] = Array.from(new Set(rows.map(r => r[col]).filter(Boolean))).sort();
+    });
+    return vals;
+  }, [rows, columns]);
 
   const visibleRows = useMemo(() => {
     let list = [...rows];
 
     const term = search.trim().toLowerCase();
     if (term) {
-      list = list.filter((row) => [
-        row.platform,
-        row.sku,
-        row.style,
-        row.size,
-        ...(row.pieces || []).map((piece) => piece.color),
-      ].some((value) => String(value || "").toLowerCase().includes(term)));
+      list = list.filter((row) => columns.some((col) => String(row[col] || "").toLowerCase().includes(term)));
     }
 
-    if (selectedPlatforms.length > 0 && selectedPlatforms.length < uniquePlatforms.length) list = list.filter((r) => selectedPlatforms.includes(r.platform || "Common"));
-    if (selectedStyles.length > 0 && selectedStyles.length < uniqueStyles.length) list = list.filter((r) => selectedStyles.includes(r.style));
-    if (selectedSizes.length > 0 && selectedSizes.length < uniqueSizes.length) list = list.filter((r) => selectedSizes.includes(r.size));
-    if (selectedPackOff.length > 0 && selectedPackOff.length < uniquePackOff.length) list = list.filter((r) => selectedPackOff.includes(r.pack_of));
-    if (selectedFullColor.length > 0 && selectedFullColor.length < uniqueFullColor.length) list = list.filter((r) => selectedFullColor.includes(r.full_color));
-    if (selectedMainProductType.length > 0 && selectedMainProductType.length < uniqueMainProductType.length) list = list.filter((r) => selectedMainProductType.includes(r.main_product_type));
-    if (selectedColor1.length > 0 && selectedColor1.length < uniqueColor1.length) list = list.filter((r) => selectedColor1.includes(r.pieces?.[0]?.color));
-    if (selectedColor2.length > 0 && selectedColor2.length < uniqueColor2.length) list = list.filter((r) => selectedColor2.includes(r.pieces?.[1]?.color));
-    if (selectedColor3.length > 0 && selectedColor3.length < uniqueColor3.length) list = list.filter((r) => selectedColor3.includes(r.pieces?.[2]?.color));
-    if (selectedColor4.length > 0 && selectedColor4.length < uniqueColor4.length) list = list.filter((r) => selectedColor4.includes(r.pieces?.[3]?.color));
-    if (selectedColor5.length > 0 && selectedColor5.length < uniqueColor5.length) list = list.filter((r) => selectedColor5.includes(r.pieces?.[4]?.color));
+    Object.keys(columnFilters).forEach(col => {
+       const selected = columnFilters[col];
+       if (selected && selected.length > 0 && selected.length < (uniqueValues[col]?.length || 0)) {
+          list = list.filter(r => selected.includes(r[col]));
+       }
+    });
 
     list.sort((a, b) => {
-      let cmp = 0;
-      if (sortField === "platform") {
-        cmp = String(a.platform || "").localeCompare(String(b.platform || ""));
-      } else if (sortField === "sku") {
-        cmp = String(a.sku || "").localeCompare(String(b.sku || ""));
-      } else if (sortField === "style") {
-        cmp = String(a.style || "").localeCompare(String(b.style || ""));
-      } else if (sortField === "size") {
-        cmp = String(a.size || "").localeCompare(String(b.size || ""));
-      }
+      let cmp = String(a[sortField] || "").localeCompare(String(b[sortField] || ""));
       return sortAsc ? cmp : -cmp;
     });
 
     return list;
-  }, [rows, search, selectedPlatforms, uniquePlatforms, selectedStyles, uniqueStyles, selectedSizes, uniqueSizes, sortField, sortAsc]);
+  }, [rows, search, columnFilters, uniqueValues, sortField, sortAsc, columns]);
 
   const handleSort = (field, asc) => {
     setSortField(field);
@@ -282,19 +250,7 @@ export default function SkuMasterPage() {
       return;
     }
 
-    const payloadItem = {
-      id: draftRow.id,
-      platform: draftRow.platform || "Common",
-      sku: draftRow.sku.trim(),
-      style: draftRow.style.trim(),
-      size: draftRow.size.trim(),
-      pack_of: (draftRow.pack_of || "").trim(),
-      full_color: (draftRow.full_color || "").trim(),
-      main_product_type: (draftRow.main_product_type || "").trim(),
-      pieces: (draftRow.pieces || [])
-        .filter((piece) => piece?.color?.trim())
-        .map((piece) => ({ color: piece.color.trim() })),
-    };
+    const payloadItem = { ...draftRow };
 
     setSavingKey(editingKey);
     try {
@@ -432,32 +388,16 @@ export default function SkuMasterPage() {
   };
 
   const clearAllFilters = () => {
-    setSearch("");
-    setSelectedPlatforms([]);
-    setSelectedStyles([]);
-    setSelectedSizes([]);
-    setSelectedPackOff([]);
-    setSelectedFullColor([]);
-    setSelectedMainProductType([]);
-    setSelectedColor1([]);
-    setSelectedColor2([]);
-    setSelectedColor3([]);
-    setSelectedColor4([]);
-    setSelectedColor5([]);
+    setColumnFilters({});
   };
 
-  const hasActiveFilters = Boolean(
-    search ||
-    (selectedPlatforms.length > 0 && selectedPlatforms.length < uniquePlatforms.length) ||
-    (selectedStyles.length > 0 && selectedStyles.length < uniqueStyles.length) ||
-    (selectedSizes.length > 0 && selectedSizes.length < uniqueSizes.length),
-  );
+  const hasActiveFilters = Boolean(search || Object.values(columnFilters).some(arr => arr && arr.length > 0));
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       {/* Header */}
       <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-[98%] flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-4">
             <Link
               to="/#inventory"
@@ -513,7 +453,7 @@ export default function SkuMasterPage() {
       </header>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-[1600px] px-6 py-6 space-y-4">
+      <main className="mx-auto max-w-[98%] px-6 py-6 space-y-4">
         {/* Conditional Active Database Status or Upload Dropzone */}
         {activeSkuMaster ? (
           <div className="bg-white p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
@@ -579,7 +519,9 @@ export default function SkuMasterPage() {
           </div>
         )}
 
-        {/* Search Bar & Stats */}
+        {(rows.length > 0 || loading) && (
+          <>
+          {/* Search Bar & Stats */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex max-w-md items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/80 px-3.5 py-2 shadow-xs backdrop-blur-md flex-1">
             <Search size={16} className="text-slate-400" />
@@ -613,17 +555,21 @@ export default function SkuMasterPage() {
             <table className="min-w-full text-left text-sm border-none">
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
                 <tr>
-                  <th className="px-4 py-3 min-w-[150px]"><ExcelHeaderFilter label="SKU" columnKey="sku" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Size" columnKey="size" values={uniqueSizes} selectedValues={selectedSizes} onFilterChange={setSelectedSizes} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Pack of" columnKey="pack_of" values={uniquePackOff} selectedValues={selectedPackOff} onFilterChange={setSelectedPackOff} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Full Color" columnKey="full_color" values={uniqueFullColor} selectedValues={selectedFullColor} onFilterChange={setSelectedFullColor} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Color1" columnKey="color1" values={uniqueColor1} selectedValues={selectedColor1} onFilterChange={setSelectedColor1} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Color2" columnKey="color2" values={uniqueColor2} selectedValues={selectedColor2} onFilterChange={setSelectedColor2} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Color3" columnKey="color3" values={uniqueColor3} selectedValues={selectedColor3} onFilterChange={setSelectedColor3} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Color4" columnKey="color4" values={uniqueColor4} selectedValues={selectedColor4} onFilterChange={setSelectedColor4} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[110px]"><ExcelHeaderFilter label="Color5" columnKey="color5" values={uniqueColor5} selectedValues={selectedColor5} onFilterChange={setSelectedColor5} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[150px]"><ExcelHeaderFilter label="Main product Type" columnKey="main_product_type" values={uniqueMainProductType} selectedValues={selectedMainProductType} onFilterChange={setSelectedMainProductType} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
-                  <th className="px-4 py-3 min-w-[150px]"><ExcelHeaderFilter label="Style" columnKey="style" values={uniqueStyles} selectedValues={selectedStyles} onFilterChange={setSelectedStyles} sortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" /></th>
+                  {columns.map(col => (
+                    <th key={col} className="px-4 py-3 min-w-[110px]">
+                      <ExcelHeaderFilter 
+                        label={col.replace(/_/g, " ").toUpperCase()} 
+                        columnKey={col} 
+                        values={uniqueValues[col] || []} 
+                        selectedValues={columnFilters[col] || []} 
+                        onFilterChange={(vals) => setColumnFilters(prev => ({...prev, [col]: vals}))} 
+                        sortField={sortField} 
+                        sortAsc={sortAsc} 
+                        onSort={handleSort} 
+                        align="left" 
+                      />
+                    </th>
+                  ))}
                   <th className="w-20 px-4 py-3 text-center font-bold text-slate-600">Action</th>
                 </tr>
               </thead>
@@ -646,17 +592,11 @@ export default function SkuMasterPage() {
                       key={rowKey(row)}
                       className="group hover:bg-slate-50/80 transition"
                     >
-                      <td className="px-4 py-3 font-mono font-bold text-slate-900">{renderTextCell(row, "sku")}</td>
-                      <td className="px-4 py-3 font-extrabold text-slate-900">{renderTextCell(row, "size")}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderTextCell(row, "pack_of")}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderTextCell(row, "full_color")}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderPieceColorCell(row, 0)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderPieceColorCell(row, 1)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderPieceColorCell(row, 2)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderPieceColorCell(row, 3)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderPieceColorCell(row, 4)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-700">{renderTextCell(row, "main_product_type")}</td>
-                      <td className="px-4 py-3 font-bold text-slate-800">{renderTextCell(row, "style")}</td>
+                      {columns.map(col => (
+                        <td key={col} className="px-4 py-3 font-medium text-slate-700">
+                          {renderTextCell(row, col)}
+                        </td>
+                      ))}
                       <td className="px-4 py-3 text-center">{renderActionsCell(row)}</td>
                     </tr>
                   ))
@@ -690,6 +630,9 @@ export default function SkuMasterPage() {
             </div>
           )}
         </section>
+      
+          </>
+        )}
       </main>
     </div>
   );

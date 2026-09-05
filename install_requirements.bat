@@ -13,3 +13,5 @@ pip install starlette==1.0.0
 pip install typing-inspection==0.4.2
 pip install typing_extensions==4.15.0
 pip install uvicorn==0.47.0
+pip install python-dotenv
+pip install psycopg2

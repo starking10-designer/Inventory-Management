@@ -143,7 +143,9 @@ from app.services.excel_service import (
 
 
 
-router = APIRouter()
+from app.routes.auth_routes import get_current_user
+from fastapi import Depends
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 from app.services.inventory_snapshot_cache import (
     invalidate_inventory_snapshot,
@@ -221,11 +223,8 @@ class ManualSKUPieceCreate(BaseModel):
 class ManualSKUMasterCreate(BaseModel):
     platform: Optional[str] = "Common"
     sku: str = Field(..., min_length=1)
-    style: Optional[str] = ""
-    size: Optional[str] = ""
-    pack_of: Optional[str] = ""
-    full_color: Optional[str] = ""
-    pieces: List[ManualSKUPieceCreate] = Field(default_factory=list)
+    
+    model_config = {"extra": "allow"}
 
 class SKUMasterRowUpdate(ManualSKUMasterCreate):
     id: Optional[int] = None
@@ -6923,20 +6922,13 @@ def _style_workbook_sheet(wb, title, rows, primary_headers, sizes):
 
 
 
-@router.get("/sales-pivot-analytics/export")
-
+@router.get("/sales-pivot-analytics/export/{report_type}")
 def export_sales_pivot_analytics(
-
+    report_type: str,
     from_date: str = Query(None),
-
     to_date: str = Query(None),
-
     platform: str = Query("All"),
-
-    report_type: str = Query(None),
-
     all_dates: bool = Query(False),
-
 ):
 
     from io import BytesIO
@@ -6950,15 +6942,11 @@ def export_sales_pivot_analytics(
 
 
     data = sales_pivot_analytics(
-
         from_date=from_date,
-
         to_date=to_date,
-
         platform=platform,
-
         all_dates=all_dates,
-
+        period=None,
     )
 
 
@@ -7201,31 +7189,7 @@ def _admin_key_valid(x_admin_key: Optional[str]) -> bool:
 
 
 
-def get_stock_inventory_style(style):
 
-    style_text = str(style).strip().lower()
-
-
-
-    if "lsds" in style_text or style_text.startswith("sn"):
-
-        return "lsds"
-
-
-
-    if "gv" in style_text:
-
-        return "gv print"
-
-
-
-    if "sprn" in style_text:
-
-        return "sprn"
-
-
-
-    return None
 
 def normalize_stock_inventory_color(color):
 
@@ -7235,103 +7199,13 @@ def normalize_stock_inventory_color(color):
 
 
 
-STICKER_COLORS = [
-
-    "1 black",
-
-    "2 white",
-
-    "3 grey",
-
-    "4 sandal",
-
-    "5 navy",
-
-    "6 pink",
-
-    "7 brown",
-
-    "8 olive",
-
-]
-
-
-
-LSDS_STICKER_STYLES = [
-
-    f"lsds{n:02d}"
-
-    for n in (
-
-        1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
-
-    )
-
-]
-
-
-
-SN_STICKER_STYLES = [
-
-    "sn450",
-
-    "sn451",
-
-    "sn452",
-
-]
-
-
-
-STICKER_STYLES = LSDS_STICKER_STYLES + SN_STICKER_STYLES
-
-
-
-STICKER_COLOR_BY_NAME = {
-
-    color.split(" ", 1)[1]: color
-
-    for color in STICKER_COLORS
-
-}
 
 
 
 
 
-def get_sticker_inventory_style(style):
-
-    style_text = str(style).strip().lower().replace(" ", "")
 
 
-
-    lsds_match = re.search(
-
-        r"lsds(\d+)",
-
-        style_text,
-
-    )
-
-    if lsds_match:
-
-        normalized = f"lsds{int(lsds_match.group(1)):02d}"
-
-        if normalized in LSDS_STICKER_STYLES:
-
-            return normalized
-
-
-
-    for sticker_style in SN_STICKER_STYLES:
-
-        if sticker_style in style_text:
-
-            return sticker_style
-
-
-
-    return None
 
 
 
@@ -7799,197 +7673,11 @@ def deduct_sticker_inventory(aggregated_orders, report_rows, db):
         "total_qty_deducted": total_qty_deducted,
 
         "deductions": deductions,
-
     }
-
-
-
-
-
-
-
-
-    sizes = ["M", "L", "XL"]
-
-
-
-    lsds_colors = [
-
-        ("1 black", 0, 0, 0),
-
-        ("2 white", 0, 0, 0),
-
-        ("3 grey", 0, 0, 0),
-
-        ("4 sandal", 0, 0, 0),
-
-        ("5 navy", 0, 0, 0),
-
-        ("6 pink", 0, 0, 0),
-
-        ("7 brown", 0, 0, 0),
-
-        ("8 olive", 0, 0, 0),
-
-        ("9 cream", 0, 0, 0),
-
-        ("10 grey melange", 0, 0, 0),
-
-        ("11 charcoal melange", 0, 0, 0),
-
-        ("12 dark grey", 0, 0, 0),
-
-    ]
-
-
-
-    gv_print_colors = [
-
-        ("black", 0, 0, 0),
-
-        ("navy", 0, 0, 0),
-
-        ("maroon", 0, 0, 0),
-
-        ('red', 0, 0, 0),
-
-        ("yellow", 0, 0, 0),
-
-        ("sky blue", 0, 0, 0),
-
-        ("light grey", 0, 0, 0),
-
-        ("dark grey", 0, 0, 0),
-
-    ]
-
-
-
-    sprn_colors = [
-
-        ("black", 0, 0, 0),
-
-        ("white", 0, 0, 0),
-
-        ("navy", 0, 0, 0),
-
-        ("maroon", 0, 0, 0),
-
-        ("light grey", 0, 0, 0),
-
-        ("dark grey", 0, 0, 0),
-
-    ]
-
-
-
-    inventories = [
-
-        ("lsds", lsds_colors),
-
-        ("gv print", gv_print_colors),
-
-        ("sprn", sprn_colors),
-
-    ]
-
-
-
-    for style, colors in inventories:
-
-        for color, *qty_values in colors:
-
-            for size, qty in zip(sizes, qty_values):
-
-                db.add(
-
-                    StockInventory(
-
-                        style=style,
-
-                        color=color,
-
-                        size=size,
-
-                        qty=qty,
-
-                    )
-
-                )
-
-
-
-    db.commit()
-
-
-
 
 
 def ensure_sticker_inventory(db):
-
-    legacy_rows = db.query(StickerInventory).filter(
-
-        StickerInventory.style == "lsds",
-
-    ).all()
-
-
-
-    if legacy_rows:
-
-        for row in legacy_rows:
-
-            db.delete(row)
-
-        db.flush()
-
-
-
-    existing = {
-
-        (row.style, row.color)
-
-        for row in db.query(
-
-            StickerInventory.style,
-
-            StickerInventory.color,
-
-        ).all()
-
-    }
-
-
-
-    added = False
-
-    for style in STICKER_STYLES:
-
-        for color in STICKER_COLORS:
-
-            if (style, color) not in existing:
-
-                db.add(
-
-                    StickerInventory(
-
-                        style=style,
-
-                        color=color,
-
-                        qty=0,
-
-                    )
-
-                )
-
-                added = True
-
-
-
-    if legacy_rows or added:
-
-        db.commit()
+    pass
 
 
 
@@ -8270,452 +7958,144 @@ def get_sticker_sidebar_options(db: Session = Depends(get_db)):
     return result
 
 @router.get("/sku-master/options")
-
 def get_sku_master_options(db: Session = Depends(get_db)):
-
-    styles = {
-
-        str(row.style).strip()
-
-        for row in db.query(SKUMaster.style).all()
-
-        if row.style and str(row.style).strip()
-
-    }
-
-    sizes = {
-
-        str(row.size).strip()
-
-        for row in db.query(SKUMaster.size).all()
-
-        if row.size and str(row.size).strip()
-
-    }
-
-    colors = {
-
-        clean_color_name(row.color or "")
-
-        for row in db.query(SKUPiece.color).all()
-
-        if row.color and clean_color_name(row.color or "")
-
-    }
-
-    colors_by_position = [set() for _ in range(5)]
-
-    current_sku_master_id = None
-
-    current_position = 0
-
-
-
-    for piece in (
-
-        db.query(SKUPiece)
-
-        .order_by(SKUPiece.sku_master_id.asc(), SKUPiece.id.asc())
-
-        .all()
-
-    ):
-
-        if piece.sku_master_id != current_sku_master_id:
-
-            current_sku_master_id = piece.sku_master_id
-
-            current_position = 0
-
-
-
-        color_value = clean_color_name(piece.color or "")
-
-
-
-        if color_value and current_position < len(colors_by_position):
-
-            colors_by_position[current_position].add(color_value)
-
-
-
-        current_position += 1
-
-
-
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.get_bind())
+    ignored_columns = {"id", "sku", "platform"}
+    
+    columns_data = {}
+    
+    try:
+        columns = inspector.get_columns("sku_master")
+        for column in columns:
+            col_name = column["name"]
+            if col_name in ignored_columns:
+                continue
+                
+            distinct_vals = {
+                str(val[0]).strip()
+                for val in db.execute(text(f'SELECT DISTINCT "{col_name}" FROM sku_master')).fetchall()
+                if val[0] is not None and str(val[0]).strip()
+            }
+        
+            columns_data[col_name] = sorted(list(distinct_vals), key=str.lower)
+    except Exception as e:
+        print(f"Error fetching SKU master options: {e}")
+        
     return {
-
-        "styles": sorted(styles, key=str.lower),
-
-        "sizes": sorted(sizes, key=str.lower),
-
-        "colors": sorted(colors, key=str.lower),
-
-        "colors_by_position": [
-
-            sorted(position_colors, key=str.lower)
-
-            for position_colors in colors_by_position
-
-        ],
-
+        "columns": columns_data
     }
-
-
-
-
 
 @router.get("/sku-master/rows")
-
 def get_sku_master_rows(db: Session = Depends(get_db)):
-
-    rows = (
-
-        db.query(SKUMaster)
-
-        .order_by(SKUMaster.style.asc(), SKUMaster.sku.asc())
-
-        .all()
-
-    )
-
-    return {
-
-        "count": len(rows),
-
-        "items": [
-
-            {
-
-                "id": row.id,
-                "platform": row.platform or "Common",
-                "sku": row.sku or "",
-                "style": row.style or "",
-                "size": row.size or "",
-                "pack_of": row.pack_of or "",
-                "full_color": row.full_color or "",
-                "main_product_type": row.main_product_type or "",
-                "pieces": [
-
-                    {
-
-                        "id": piece.id,
-
-                        "color": piece.color or "",
-
-                        "qty": _safe_int(piece.qty),
-
-                    }
-
-                    for piece in row.pieces
-
-                ],
-
-            }
-
-            for row in rows
-
-        ],
-
-    }
-
-
-
-
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.get_bind())
+    
+    try:
+        columns = [col["name"] for col in inspector.get_columns("sku_master")]
+        rows = db.execute(text("SELECT * FROM sku_master")).fetchall()
+        
+        items = []
+        for row in rows:
+            item = {}
+            for idx, col in enumerate(columns):
+                item[col] = row[idx]
+            items.append(item)
+            
+        ignored_columns = {"id", "platform"}
+        raw_columns = [c for c in columns if c not in ignored_columns]
+        
+        desired_order = ["main_product_type", "style", "sku", "size", "pack_of"]
+        display_columns = []
+        for col in desired_order:
+            if col in raw_columns:
+                display_columns.append(col)
+                
+        for col in raw_columns:
+            if col not in display_columns:
+                display_columns.append(col)
+            
+        return {
+            "columns": display_columns,
+            "items": items
+        }
+    except Exception as e:
+        print(f"Error fetching rows: {e}")
+        return {"columns": [], "items": []}
 
 @router.put("/sku-master/rows")
-
-def update_sku_master_rows(
-
-    body: SKUMasterBulkUpdate,
-
-    db: Session = Depends(get_db),
-
-):
-
+def update_sku_master_rows(payload: dict, db: Session = Depends(get_db)):
+    from sqlalchemy import text
     try:
-
-        submitted_ids = {item.id for item in body.items if item.id is not None}
-
-        existing_by_id = {
-
-            row.id: row
-
-            for row in db.query(SKUMaster).filter(
-
-                SKUMaster.id.in_(submitted_ids or {-1})
-
-            ).all()
-
-        }
-
-        missing_ids = submitted_ids.difference(existing_by_id)
-
-        if missing_ids:
-
-            raise HTTPException(status_code=404, detail="One or more SKU rows no longer exist.")
-
-
-
-        normalized_values = [normalize_sku(item.sku) for item in body.items]
-
-        if any(not value for value in normalized_values):
-
-            raise HTTPException(status_code=400, detail="SKU cannot be empty.")
-
-        if len(normalized_values) != len(set(normalized_values)):
-
-            raise HTTPException(status_code=400, detail="Duplicate SKU values are not allowed.")
-
-
-
-        deleted_ids = set(body.deleted_ids)
-
-        untouched_rows = db.query(SKUMaster).filter(
-
-            ~SKUMaster.id.in_(submitted_ids | deleted_ids or {-1})
-
-        ).all()
-
-        untouched_skus = {normalize_sku(row.sku) for row in untouched_rows}
-
-        duplicate = next((item.sku for item in body.items if normalize_sku(item.sku) in untouched_skus), None)
-
-        if duplicate:
-
-            raise HTTPException(status_code=400, detail=f"SKU already exists: {duplicate}")
-
-
-
-        for row_id in deleted_ids:
-
-            row = db.query(SKUMaster).filter(SKUMaster.id == row_id).first()
-
-            if row:
-
-                db.delete(row)
-
-
-
-        for item in body.items:
-
-            row = existing_by_id.get(item.id) if item.id is not None else None
-
-            if row is None:
-
-                row = SKUMaster()
-
-                db.add(row)
-
-                db.flush()
-
-
-
-            row.platform = (item.platform or "Common").strip() or "Common"
-
-            row.sku = item.sku.strip()
-
-            row.style = (item.style or "").strip()
-
-            row.size = (item.size or "").strip().upper()
-
-            row.pack_of = getattr(item, "pack_of", "")
-
-            row.full_color = getattr(item, "full_color", "")
-
-            row.pieces.clear()
-
-
-
-            for piece in item.pieces:
-
-                color = clean_color_name(piece.color or "")
-
-                if color and color not in {"-", "nan"}:
-
-                    row.pieces.append(SKUPiece(color=color, qty=1))
-
-
-
+        items = payload.get("items", [])
+        for item in items:
+            item_id = item.pop("id", None)
+            if not item_id: continue
+            
+            # Update sku_master
+            set_clauses = []
+            for k in item.keys():
+                if k != "pieces":
+                    set_clauses.append(f'"{k}" = :{k}')
+                    
+            if set_clauses:
+                set_sql = ", ".join(set_clauses)
+                item["id"] = item_id
+                db.execute(text(f"UPDATE sku_master SET {set_sql} WHERE id = :id"), item)
         db.commit()
-        _invalidate_sku_master_caches()
-
-        return {"message": "SKU master saved", "count": len(body.items)}
-
-    except HTTPException:
-
+        return {"message": "Updated successfully"}
+    except Exception as e:
         db.rollback()
-
-        raise
-
-    except Exception:
-
-        db.rollback()
-
-        raise
-
-
-
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/sku-master/manual")
-def save_manual_sku_master(
-    items: List[ManualSKUMasterCreate],
-    db: Session = Depends(get_db),
+def add_manual_skus(
+    skus: List[ManualSKUMasterCreate],
+    db: Session = Depends(get_db)
 ):
-    saved_items = []
-    
-    # 1. Pre-fetch matching SKUs using an optimized .in_() query to save memory and CPU
-    normalized_incoming_skus = [normalize_sku(item.sku) for item in items if item.sku and item.sku.strip()]
-    
-    existing_skus_dict = {}
-    if normalized_incoming_skus:
-        # Match the Python normalize_sku logic in SQL: strip(), upper(), replace("-", "_")
-        normalized_db_sku = func.replace(func.upper(func.trim(SKUMaster.sku)), "-", "_")
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.get_bind())
+        current_columns = {col["name"] for col in inspector.get_columns("sku_master")}
         
-        possible_matches = (
-            db.query(SKUMaster)
-            .filter(normalized_db_sku.in_(normalized_incoming_skus))
-            .all()
-        )
-        for row in possible_matches:
-            existing_skus_dict[normalize_sku(row.sku)] = row
-
-    for item in items:
-        sku_value = item.sku.strip()
-
-        if not sku_value:
-            continue
-
-        normalized_sku = normalize_sku(sku_value)
-        existing_sku = existing_skus_dict.get(normalized_sku)
-
-        if existing_sku:
-
-            sku_master = existing_sku
-
-            sku_master.platform = item.platform or "Common"
-
-            sku_master.sku = sku_value
-
-            sku_master.style = (item.style or "").strip()
-
-            sku_master.size = (item.size or "").strip()
-
-            sku_master.pack_of = getattr(item, "pack_of", "").strip()
-
-            sku_master.full_color = getattr(item, "full_color", "").strip()
-
-
-
-            db.query(SKUPiece).filter(
-
-                SKUPiece.sku_master_id == sku_master.id
-
-            ).delete()
-
-        else:
-
-            sku_master = SKUMaster(
-
-                platform=item.platform or "Common",
-
-                sku=sku_value,
-
-                style=(item.style or "").strip(),
-
-                size=(item.size or "").strip(),
-
-                pack_of=getattr(item, "pack_of", "").strip(),
-
-                full_color=getattr(item, "full_color", "").strip()
-
-            )
-
-            db.add(sku_master)
-
-            db.flush()
-
-
-
-        for piece in item.pieces:
-
-            color_value = clean_color_name(piece.color or "")
-
-
-
-            if (
-
-                not color_value
-
-                or color_value == "nan"
-
-                or color_value == "-"
-
-            ):
-
+        for sku_data in skus:
+            existing = db.query(SKUMaster).filter(SKUMaster.sku == sku_data.sku).first()
+            if existing:
                 continue
 
-
-
-            db.add(
-
-                SKUPiece(
-
-                    sku_master_id=sku_master.id,
-
-                    color=color_value,
-
-                    qty=1,
-
-                )
-
-            )
-
-
-
-        saved_items.append(
-
-            {
-
-                "sku": sku_master.sku,
-
-                "platform": sku_master.platform,
-
+            dump = sku_data.model_dump()
+            pieces_data = dump.pop("pieces", [])
+            
+            insert_data = {
+                "sku": dump.pop("sku"),
+                "platform": dump.pop("platform", "Common")
             }
-
-        )
-
-
-
-    if not saved_items:
-
-        raise HTTPException(
-
-            status_code=400,
-
-            detail="Enter at least one SKU.",
-
-        )
-
-
-
-    db.commit()
-    _invalidate_sku_master_caches()
-
-
-
-    return {
-
-        "message": "SKU master updated",
-
-        "count": len(saved_items),
-
-        "items": saved_items,
-
-    }
-
-
+            
+            # Map extra columns if they exist in DB
+            for k, v in dump.items():
+                if k in current_columns:
+                    insert_data[k] = str(v)
+            
+            cols = ', '.join([f'"{k}"' for k in insert_data.keys()])
+            vals = ', '.join([f":{k}" for k in insert_data.keys()])
+            
+            res = db.execute(text(f"INSERT INTO sku_master ({cols}) VALUES ({vals})"), insert_data)
+            sku_master_id = res.lastrowid
+            
+            if pieces_data:
+                for p in pieces_data:
+                    new_piece = SKUPiece(
+                        sku_master_id=sku_master_id,
+                        color=p.get("color", ""),
+                        qty=p.get("qty", 1)
+                    )
+                    db.add(new_piece)
+                    
+        db.commit()
+        return {"message": "SKUs added successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload-file")
 
@@ -8791,254 +8171,85 @@ def upload_file(
 
         db: Session = SessionLocal()
 
-
-
         try:
+            # 1. Validation
+            mandatory_columns = {"sku", "style", "mainproducttype", "size", "packof"}
+            uploaded_cols = set(df.columns)
+            if not mandatory_columns.issubset(uploaded_cols):
+                missing = mandatory_columns - uploaded_cols
+                raise HTTPException(status_code=400, detail=f"Missing mandatory columns in Excel file: {', '.join(missing)}")
+                
+            # 2. Dynamic Schema Update (1st time only)
+            from sqlalchemy import inspect, text
+            inspector = inspect(db.get_bind())
+            current_columns = {col["name"] for col in inspector.get_columns("sku_master")}
+            
+            predefined_schema = {"id", "platform", "sku", "style", "mainproducttype", "size", "packof", "main_product_type", "pack_of", "full_color"}
+            is_first_time = len(current_columns - predefined_schema) == 0
+            
+            if is_first_time:
+                for col in df.columns:
+                    if col not in current_columns and col not in predefined_schema:
+                        try:
+                            db.execute(text(f'ALTER TABLE sku_master ADD COLUMN "{col}" TEXT'))
+                        except Exception as alter_err:
+                            print(f"Error adding column {col}: {alter_err}")
+                db.commit()
+                current_columns = {col["name"] for col in inspect(db.get_bind()).get_columns("sku_master")}
 
-
-
-            # =====================
-
-            # CLEAR OLD DATA
-
-            # =====================
-
-
-
-            db.query(
-
-                SKUPiece
-
-            ).delete()
-
-
-
-            db.query(
-
-                SKUMaster
-
-            ).delete()
-
-
-
+            # 3. Clear old data
+            db.query(SKUPiece).delete()
+            db.query(SKUMaster).delete()
             db.commit()
 
-
-
-            # =====================
-
-            # IMPORT NEW SKU MASTER
-
-            # =====================
-
-
-
+            # 4. Insert data dynamically
+            color_columns = [col for col in df.columns if col.startswith("color")]
+            seen_skus = set()
+            
             for _, row in df.iterrows():
-
-
-
-                sku_value = str(
-
-                    row.get("sku", "")
-
-                ).strip()
-
-
-
-                if (
-
-                    not sku_value
-
-                    or sku_value == "nan"
-
-                ):
-
+                sku_value = str(row.get("sku", "")).strip()
+                if not sku_value or sku_value == "nan" or sku_value in seen_skus:
                     continue
-
-
-
-                existing_sku = db.query(
-
-                    SKUMaster
-
-                ).filter(
-
-
-
-                    func.lower(SKUMaster.sku) == sku_value.lower()
-
-
-
-                ).first()
-
-
-
-                if existing_sku:
-
-
-
-                    continue
-
-
-
-                sku_master = SKUMaster(
-
-
-
-                    platform="Common",
-
-
-
-                    sku=sku_value,
-
-
-
-                    style=str(
-
-                        row.get("style", "")
-
-                    ).strip(),
-
-
-
-                    main_product_type=str(
-
-                        row.get("mainproducttype", "")
-
-                    ).strip(),
-
-
-
-                    size=str(
-
-                        row.get("size", "")
-
-                    ).strip(),
-
-
-
-                    pack_of=str(
-                        row.get("packof", "")
-                    ).strip(),
-
-
-
-                    full_color=str(
-
-                        row.get("fullcolor", "")
-
-                    ).strip()
-
-                )
-
-
-
-                db.add(
-
-                    sku_master
-
-                )
-
-
-
-                db.flush()
-
-
-
-                color_columns = [
-
-                    "color1",
-
-                    "color2",
-
-                    "color3",
-
-                    "color4",
-
-                    "color5",
-
-                ]
-
-
-
+                seen_skus.add(sku_value)
+                
+                insert_data = {
+                    "platform": "Common",
+                    "sku": sku_value,
+                    "style": str(row.get("style", "")).strip(),
+                    "main_product_type": str(row.get("mainproducttype", "")).strip(),
+                    "size": str(row.get("size", "")).strip(),
+                    "pack_of": str(row.get("packof", "")).strip(),
+                }
+                
+                for col in df.columns:
+                    if col in current_columns and col not in predefined_schema:
+                        insert_data[col] = str(row.get(col, "")).strip()
+                        
+                cols = ', '.join([f'"{k}"' for k in insert_data.keys()])
+                vals = ', '.join([f":{k}" for k in insert_data.keys()])
+                
+                res = db.execute(text(f"INSERT INTO sku_master ({cols}) VALUES ({vals})"), insert_data)
+                sku_master_id = res.lastrowid
+                
                 for color_col in color_columns:
-
-
-
-                    color_value = clean_color_name(
-
-
-
-                        row.get(
-
-                            color_col,
-
-                            ""
-
-                        )
-
-                    )
-
-
-
-                    if (
-
-                        not color_value
-
-                        or
-
-                        color_value == "nan"
-
-                        or
-
-                        color_value == "-"
-
-                    ):
-
+                    color_value = clean_color_name(row.get(color_col, ""))
+                    if not color_value or color_value == "nan" or color_value == "-":
                         continue
-
-
-
+                        
                     sku_piece = SKUPiece(
-
-
-
-                        sku_master_id=
-
-                        sku_master.id,
-
-
-
+                        sku_master_id=sku_master_id,
                         color=color_value,
-
-
-
                         qty=1
-
                     )
-
-
-
-                    db.add(
-
-                        sku_piece
-
-                    )
-
-
-
+                    db.add(sku_piece)
+            
             db.commit()
             _invalidate_sku_master_caches()
 
-
-
         except Exception as e:
-
-
-
             db.rollback()
-
-
+            if isinstance(e, HTTPException):
+                raise e
 
             raise HTTPException(
 
@@ -10675,9 +9886,8 @@ def export_inventory_excel(
 
         data_rows = []
         if inventory_type == "sticker":
-            colors = list(STICKER_COLORS)
-            extra_colors = sorted({row.color for row in source_rows if row.color and row.color not in colors})
-            columns = colors + extra_colors
+            colors = sorted({row.color for row in source_rows if row.color})
+            columns = colors
             headers = ["Style", *columns, "Total Qty"]
             
             grouped = {}
@@ -11357,10 +10567,6 @@ def _collect_marketplace_orders(
             )
 
         )
-
-        print("MEESHO SAMPLE")
-
-        print(meesho_orders[:5])
 
         platform_orders["Meesho"] = meesho_orders
 
@@ -14203,7 +13409,7 @@ def _build_amazon_label_cropper_pdf(
 
     return {
 
-        "label_count": len(writer.pages),
+        "label_count": len(reader.pages),
 
         "missing_skus": [],
 
@@ -14287,6 +13493,38 @@ def _extract_ajio_invoice_carrier_name(text: str):
         if carrier in ["XPRESSBEES", "DELHIVERY", "SHADOWFAX"]:
             return carrier
     return ""
+
+
+def _extract_ajio_invoice_group_key(text: str):
+    source = str(text or "")
+    awb_match = re.search(r"\bAWB\s+Number\s*:\s*([A-Z0-9]+)", source, flags=re.IGNORECASE)
+    if awb_match:
+        return f"awb:{awb_match.group(1).strip().upper()}"
+
+    order_match = re.search(r"\bORDER\s+NUMBER\s*:\s*([A-Z0-9]+)", source, flags=re.IGNORECASE)
+    if order_match:
+        return f"order:{order_match.group(1).strip().upper()}"
+
+    invoice_match = re.search(r"\bTax\s+Invoice\s+No\s*:\s*([A-Z0-9]+)", source, flags=re.IGNORECASE)
+    if invoice_match:
+        return f"invoice:{invoice_match.group(1).strip().upper()}"
+
+    return ""
+
+
+def _merge_ajio_invoice_items(existing_items, new_items):
+    seen_skus = {
+        str(item.get("sku", "")).strip().upper()
+        for item in existing_items
+        if item.get("sku")
+    }
+
+    for item in new_items:
+        sku = str(item.get("sku", "")).strip().upper()
+        if not sku or sku in seen_skus:
+            continue
+        existing_items.append(item)
+        seen_skus.add(sku)
 
 
 
@@ -14785,6 +14023,7 @@ def _build_ajio_label_cropper_pdf(
     import fitz
     fitz_writer = fitz.open()
     invoice_items_by_customer = {}
+    invoice_match_by_group = {}
     missing_invoices = []
     zone_counts = Counter()
 
@@ -14824,23 +14063,38 @@ def _build_ajio_label_cropper_pdf(
 
             invoice_items = _extract_ajio_invoice_items(invoice_text)
             carrier_name = _extract_ajio_invoice_carrier_name(invoice_text)
+            invoice_group_key = _extract_ajio_invoice_group_key(invoice_text)
 
             if not customer_key or not invoice_items:
                 continue
 
-            invoice_items_by_customer.setdefault(customer_key, []).append(
-                {
-                    "items": invoice_items,
-                    "customer_name": customer_name or consignment_no,
-                    "carrier_name": carrier_name,
-
-                    "invoice_page": invoice_page_number,
-
-                    "invoice_file": os.path.basename(invoice_path),
-
-                }
-
+            grouped_invoice_key = (customer_key, invoice_group_key) if invoice_group_key else None
+            existing_invoice = (
+                invoice_match_by_group.get(grouped_invoice_key)
+                if grouped_invoice_key
+                else None
             )
+            if existing_invoice:
+                _merge_ajio_invoice_items(existing_invoice["items"], invoice_items)
+                if carrier_name and not existing_invoice.get("carrier_name"):
+                    existing_invoice["carrier_name"] = carrier_name
+                continue
+
+            invoice_record = {
+                "items": invoice_items,
+                "customer_name": customer_name or consignment_no,
+                "carrier_name": carrier_name,
+
+                "invoice_page": invoice_page_number,
+
+                "invoice_file": os.path.basename(invoice_path),
+
+            }
+            invoice_items_by_customer.setdefault(customer_key, []).append(
+                invoice_record
+            )
+            if grouped_invoice_key:
+                invoice_match_by_group[grouped_invoice_key] = invoice_record
 
 
 
@@ -15693,7 +14947,7 @@ def _build_flipkart_label_cropper_pdf(
 
         return {
 
-            "label_count": len(writer.pages),
+            "label_count": len(reader.pages),
 
             "cropped_pdf": output_path,
 
@@ -15731,7 +14985,7 @@ def _build_flipkart_label_cropper_pdf(
 
     return {
 
-        "label_count": len(writer.pages),
+        "label_count": len(reader.pages),
 
         "cropped_pdf": output_path,
 
@@ -15870,6 +15124,13 @@ def _convert_pdf_to_xml(pdf_path: str) -> str:
 
 
 INVALID_FLIPKART_ZONE_TOKENS = {
+    "ORDER",
+    "OD",
+    "ITEM",
+    "SKU",
+    "QTY",
+    "PRICE",
+    "ZONE",
     "AT",
     "AWB",
     "COD",
@@ -15974,27 +15235,26 @@ def _parse_flipkart_hbd_date(value: str):
 def _extract_flipkart_zone_after_marker(lines, marker_index: int):
     search_range = 10
     
-    for i in range(marker_index + 1, min(len(lines), marker_index + search_range)):
+    # 1. Look for explicit packaging prefix anywhere near the marker
+    for i in range(max(0, marker_index - search_range), min(len(lines), marker_index + search_range)):
         line = lines[i].strip()
         packaging_prefix = "use transparent packaging"
         if line.lower().startswith(packaging_prefix):
             zone_text = line[len("Use Transparent Packaging"):].strip()
             zone = _normalize_flipkart_zone(zone_text)
             if zone: return zone
-        else:
-            zone = _normalize_flipkart_zone(line)
-            if zone: return zone
-            
+
+    # 2. Look BACKWARDS for any valid zone (catches B6, ZON, etc.)
     for i in range(marker_index - 1, max(-1, marker_index - search_range), -1):
         line = lines[i].strip()
-        packaging_prefix = "use transparent packaging"
-        if line.lower().startswith(packaging_prefix):
-            zone_text = line[len("Use Transparent Packaging"):].strip()
-            zone = _normalize_flipkart_zone(zone_text)
-            if zone: return zone
-        else:
-            zone = _normalize_flipkart_zone(line)
-            if zone: return zone
+        zone = _normalize_flipkart_zone(line)
+        if zone: return zone
+        
+    # 3. Look FORWARDS for any valid zone
+    for i in range(marker_index + 1, min(len(lines), marker_index + search_range)):
+        line = lines[i].strip()
+        zone = _normalize_flipkart_zone(line)
+        if zone: return zone
 
     return ""
 
@@ -16147,7 +15407,7 @@ def _extract_flipkart_zone_from_text_segment(segment):
 
             for index, text in enumerate(segment)
 
-            if text.strip().lower() == "not for resale."
+            if "not for resale." in text.strip().lower()
 
         ),
 
@@ -16163,11 +15423,9 @@ def _extract_flipkart_zone_from_text_segment(segment):
 
 
 
-    for text in segment[marker_index + 1:]:
+    for text in reversed(segment[:marker_index]):
 
         zone = _normalize_flipkart_zone(text)
-
-
 
         if zone:
 
@@ -16175,11 +15433,9 @@ def _extract_flipkart_zone_from_text_segment(segment):
 
 
 
-    for text in reversed(segment[:marker_index]):
+    for text in segment[marker_index + 1:]:
 
         zone = _normalize_flipkart_zone(text)
-
-
 
         if zone:
 
@@ -16263,7 +15519,7 @@ def _extract_zones_from_xml(xml_path: str, manual_zones=None):
 
                 for index, text in enumerate(lines)
 
-                if text.strip().lower() == "not for resale."
+                if "not for resale." in text.strip().lower()
 
             ]
 
@@ -16337,7 +15593,7 @@ def _extract_zones_from_xml(xml_path: str, manual_zones=None):
 
         for i, text in enumerate(lines):
 
-            if text.strip().lower() != "not for resale.":
+            if "not for resale." not in text.strip().lower():
 
                 continue
 
@@ -16534,11 +15790,9 @@ def _save_flipkart_zone_report(
                 db.delete(existing_batch)
                 db.flush()
 
-        batch_label_count = (
-            int(label_count)
-            if label_count is not None
-            else sum(int(value or 0) for value in zone_counts.values())
-        )
+        batch_label_count = sum(int(value or 0) for value in zone_counts.values())
+        if batch_label_count == 0 and label_count is not None:
+            batch_label_count = int(label_count)
         batch = FlipkartZoneBatch(
             report_date=report_date,
             source_filename=source_filename,
@@ -17132,7 +16386,7 @@ def _build_meesho_label_sorted_pdf(input_paths, output_path: str):
 
 
     return {
-        "label_count": len(writer.pages),
+        "label_count": len(reader.pages),
         "zone_counts": zone_counts,
         "missing_pages": [],
         "report_date": datetime.now().date(),

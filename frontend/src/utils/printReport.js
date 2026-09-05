@@ -163,7 +163,12 @@ export function buildMarketplaceFormData(files, options = {}) {
   };
 
   appendFile("flipkart_file", files.flipkart, "flipkart.csv");
-  if (files.flipkart && options.flipkartDispatchPeriod) {
+  if (files.flipkart && options.flipkartDispatchDate) {
+    formData.append(
+      "flipkart_dispatch_period",
+      options.flipkartDispatchDate,
+    );
+  } else if (files.flipkart && options.flipkartDispatchPeriod) {
     formData.append(
       "flipkart_dispatch_period",
       options.flipkartDispatchPeriod,

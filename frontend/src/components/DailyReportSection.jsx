@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import axios from "axios";
 import { API_BASE } from "../api.js";
 import {
@@ -7,11 +8,11 @@ import {
   Trash2,
   Printer,
   X,
-  Eye,
   Package,
   Calendar,
   Layers,
   Sparkles,
+  Filter,
 } from "lucide-react";
 import { printDailyReportRows } from "../utils/printReport.js";
 
@@ -116,12 +117,103 @@ function buildStyleSummary(rows) {
   );
 }
 
-function ReportDetailTable({ rows }) {
+function ColumnFilter({ title, columnKey, options, activeFilters, onFilterChange }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const isActive = activeFilters.size > 0;
+
+  const handleToggle = (option) => {
+    const next = new Set(activeFilters);
+    if (next.has(option)) next.delete(option);
+    else next.add(option);
+    onFilterChange(columnKey, next);
+  };
+
+  const handleClear = () => {
+    onFilterChange(columnKey, new Set());
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative inline-flex items-center gap-1.5">
+      <span>{title}</span>
+      <button 
+        type="button" 
+        onClick={() => setIsOpen(!isOpen)}
+        className={`p-1 rounded transition-colors ${isActive ? 'text-blue-600 bg-blue-100 hover:bg-blue-200' : 'text-slate-400 hover:bg-slate-200'}`}
+        title={`Filter ${title}`}
+      >
+        <Filter size={13} strokeWidth={isActive ? 3 : 2} />
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute top-full left-0 mt-2 w-56 max-h-64 overflow-y-auto bg-white border border-slate-200 shadow-xl rounded-xl z-50 p-2 flex flex-col gap-1 font-normal normal-case tracking-normal">
+            <div className="flex justify-between items-center px-2 py-1 mb-1 border-b border-slate-100 sticky top-0 bg-white">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filter by {title}</span>
+              {isActive && (
+                <button onClick={handleClear} className="text-[10px] font-bold text-rose-600 hover:underline">
+                  Clear
+                </button>
+              )}
+            </div>
+            {options.map(opt => (
+              <label key={opt} className="flex items-start gap-2.5 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs font-medium text-slate-700">
+                <input 
+                  type="checkbox"
+                  checked={activeFilters.has(opt)}
+                  onChange={() => handleToggle(opt)}
+                  className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 transition-none"
+                />
+                <span className="break-all">{opt}</span>
+              </label>
+            ))}
+            {options.length === 0 && (
+              <span className="px-2 py-3 text-xs text-slate-400 text-center">No options</span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReportDetailTable({ rows, hidePlatformColumn }) {
+  const [filters, setFilters] = useState({
+    date: new Set(),
+    platform: new Set(),
+    style: new Set(),
+    color: new Set()
+  });
+  
   const sizeColumns = useMemo(() => buildSizeColumns(rows), [rows]);
   const styleSummaryRows = useMemo(
     () => buildStyleSummary(rows),
     [rows],
   );
+
+  const uniqueValues = useMemo(() => {
+    return {
+      date: [...new Set(styleSummaryRows.map(r => r.date || ""))].sort(),
+      platform: [...new Set(styleSummaryRows.map(r => r.platform || ""))].sort(),
+      style: [...new Set(styleSummaryRows.map(r => r.style || ""))].sort(),
+      color: [...new Set(styleSummaryRows.map(r => r.color || ""))].sort()
+    };
+  }, [styleSummaryRows]);
+
+  const handleFilterChange = (columnKey, selectedSet) => {
+    setFilters(prev => ({ ...prev, [columnKey]: selectedSet }));
+  };
+
+  const filteredRows = useMemo(() => {
+    return styleSummaryRows.filter(row => {
+      const matchDate = filters.date.size === 0 || filters.date.has(row.date || "");
+      const matchPlatform = filters.platform.size === 0 || filters.platform.has(row.platform || "");
+      const matchStyle = filters.style.size === 0 || filters.style.has(row.style || "");
+      const matchColor = filters.color.size === 0 || filters.color.has(row.color || "");
+      return matchDate && matchPlatform && matchStyle && matchColor;
+    });
+  }, [styleSummaryRows, filters]);
 
   if (styleSummaryRows.length === 0) {
     return (
@@ -134,130 +226,99 @@ function ReportDetailTable({ rows }) {
   return (
     <div className="overflow-auto max-h-[min(70vh,640px)]">
       <table className="w-full text-sm text-left min-w-[760px]">
-        <thead className="sticky top-0 bg-slate-100/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200">
+        <thead className="sticky top-0 bg-slate-100/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200 shadow-sm">
           <tr>
-            <th className="px-4 py-3">Date</th>
-            <th className="px-4 py-3">Platform</th>
-            <th className="px-4 py-3">Style</th>
-            <th className="px-4 py-3">Color</th>
+            <th className="px-4 py-3.5 align-middle">
+              <ColumnFilter 
+                title="Date" 
+                columnKey="date" 
+                options={uniqueValues.date} 
+                activeFilters={filters.date} 
+                onFilterChange={handleFilterChange} 
+              />
+            </th>
+            {!hidePlatformColumn && (
+              <th className="px-4 py-3.5 align-middle">
+                <ColumnFilter 
+                  title="Platform" 
+                  columnKey="platform" 
+                  options={uniqueValues.platform} 
+                  activeFilters={filters.platform} 
+                  onFilterChange={handleFilterChange} 
+                />
+              </th>
+            )}
+            <th className="px-4 py-3.5 align-middle">
+              <ColumnFilter 
+                title="Style" 
+                columnKey="style" 
+                options={uniqueValues.style} 
+                activeFilters={filters.style} 
+                onFilterChange={handleFilterChange} 
+              />
+            </th>
+            <th className="px-4 py-3.5 align-middle">
+              <ColumnFilter 
+                title="Color" 
+                columnKey="color" 
+                options={uniqueValues.color} 
+                activeFilters={filters.color} 
+                onFilterChange={handleFilterChange} 
+              />
+            </th>
             {sizeColumns.map((size) => (
-              <th key={size} className="px-4 py-3 text-right">
+              <th key={size} className="px-4 py-3.5 text-right align-middle">
                 {size}
               </th>
             ))}
-            <th className="px-4 py-3 text-right">Total</th>
+            <th className="px-4 py-3.5 text-right align-middle">
+              Total
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {styleSummaryRows.map((row, index) => (
-            <tr
-              key={`${row.date}-${row.platform}-${row.style}-${row.color}-${index}`}
-              className="hover:bg-slate-50/80 transition"
-            >
-              <td className="px-4 py-2.5 whitespace-nowrap text-slate-600 font-medium">{row.date}</td>
-              <td className="px-4 py-2.5 font-bold text-slate-900">{row.platform}</td>
-              <td
-                className="px-4 py-2.5 max-w-[200px] truncate font-semibold text-slate-800"
-                title={row.style}
-              >
-                {row.style}
-              </td>
-              <td
-                className="px-4 py-2.5 max-w-[160px] truncate text-slate-600"
-                title={row.color}
-              >
-                {row.color}
-              </td>
-              {sizeColumns.map((size) => (
-                <td
-                  key={size}
-                  className="px-4 py-2.5 text-right tabular-nums text-slate-600"
-                >
-                  {row.sizes[size] ? row.sizes[size] : "-"}
-                </td>
-              ))}
-              <td className="px-4 py-2.5 text-right font-black text-slate-900 tabular-nums">
-                {row.total}
+          {filteredRows.length === 0 ? (
+            <tr>
+              <td colSpan={100} className="px-4 py-8 text-center text-slate-500 text-sm">
+                No matching rows found.
               </td>
             </tr>
-          ))}
+          ) : (
+            filteredRows.map((row, index) => (
+              <tr
+                key={`${row.date}-${row.platform}-${row.style}-${row.color}-${index}`}
+                className="hover:bg-slate-50/80 transition"
+              >
+                <td className="px-4 py-2.5 whitespace-nowrap text-slate-600 font-medium">{row.date}</td>
+                {!hidePlatformColumn && <td className="px-4 py-2.5 font-bold text-slate-900">{row.platform}</td>}
+                <td
+                  className="px-4 py-2.5 max-w-[200px] truncate font-semibold text-slate-800"
+                  title={row.style}
+                >
+                  {row.style}
+                </td>
+                <td
+                  className="px-4 py-2.5 max-w-[160px] truncate text-slate-600"
+                  title={row.color}
+                >
+                  {row.color}
+                </td>
+                {sizeColumns.map((size) => (
+                  <td
+                    key={size}
+                    className="px-4 py-2.5 text-right tabular-nums text-slate-600"
+                  >
+                    {row.sizes[size] ? row.sizes[size] : "-"}
+                  </td>
+                ))}
+                <td className="px-4 py-2.5 text-right font-black text-slate-900 tabular-nums">
+                  {row.total}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function ReportDetailModal({ card, reportDate, onClose, onDownload, downloading }) {
-  if (!card) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        className="w-full max-w-6xl rounded-3xl border border-white/90 bg-white/95 shadow-2xl overflow-hidden backdrop-blur-xl"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="report-detail-title"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-5 border-b border-slate-200/80 bg-gradient-to-r from-slate-50 to-[#0F2137]/5">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Daily final order report
-            </p>
-            <h2
-              id="report-detail-title"
-              className="text-xl font-black text-slate-900 mt-1"
-            >
-              {card.platform}
-            </h2>
-            <p className="text-xs text-slate-600 mt-1">
-              {reportDate} · {card.lineCount} style-color line
-              {card.lineCount === 1 ? "" : "s"} · {card.totalQty} total pieces
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                printDailyReportRows(card.rows, {
-                  date: reportDate,
-                  platform: card.platform,
-                  title: `${card.platform} daily order details`,
-                })
-              }
-              disabled={card.rows.length === 0}
-              title="Print details"
-              className="p-2 rounded-xl bg-white border border-slate-200 text-[#0F2137] hover:bg-slate-50 disabled:opacity-40 transition shadow-xs"
-            >
-              <Printer size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={() => onDownload(card.platform)}
-              disabled={downloading || card.rows.length === 0}
-              title="Download Excel"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] text-white text-xs font-bold hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50 transition shadow-xs"
-            >
-              <Download size={14} />
-              {downloading ? "Downloading…" : "Excel"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition shadow-xs"
-              aria-label="Close"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        <ReportDetailTable rows={card.rows} />
-      </div>
     </div>
   );
 }
@@ -338,114 +399,112 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
     return acc;
   }, {}) : {};
 
-  return (
+  if (!show) return null;
+
+  return createPortal(
     <div
-      className={`grid transition-all duration-500 ease-in-out ${
-        show ? "grid-rows-[1fr] opacity-100 mt-6" : "grid-rows-[0fr] opacity-0 mt-0"
-      }`}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
+      onClick={onClose}
+      role="presentation"
     >
-      <div className="overflow-hidden">
-        {summary && summary.items?.length > 0 && (
-          <div className="w-full rounded-3xl border border-slate-200/80 bg-white/95 shadow-xl backdrop-blur-xl">
-            <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200/80 bg-blue-50/70">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-blue-800 flex items-center gap-1.5">
-                  <Package size={14} />
-                  Zone Summary
-                </p>
-                <h2 id="flipkart-zone-title" className="text-xl font-black text-slate-900 mt-1">
-                  {formatReportDate(reportDate)}
-                </h2>
-                <p className="text-xs text-slate-600 mt-1">
-                  {summary.total || 0} Total Label{summary.total === 1 ? "" : "s"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition shadow-xs"
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
+      <div
+        className="w-full max-w-5xl rounded-[24px] border border-slate-200/60 bg-white shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-100/60 p-2.5 rounded-xl text-blue-600">
+              <Package size={20} strokeWidth={2.5} />
             </div>
-
-            <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
-              {Object.entries(groupedItems).map(([platform, items]) => {
-                const platformTotal = items.reduce((sum, it) => sum + it.label_count, 0);
-                return (
-                  <div key={platform} className="bg-slate-50/80 rounded-2xl p-5 border border-slate-100">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide">{platform}</h3>
-                      <span className="bg-slate-200/60 text-slate-700 px-2 py-0.5 rounded-lg text-xs font-bold tabular-nums">
-                        {platformTotal} labels
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                      {items.map((item) => (
-                        <div
-                          key={item.zone}
-                          className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-blue-200 hover:shadow-md transition-all"
-                        >
-                          <span className="text-xs text-slate-500 font-bold uppercase truncate" title={item.zone}>
-                            {item.zone}
-                          </span>
-                          <span className="text-xl font-black text-[#0F2137] tabular-nums mt-1">
-                            {item.label_count}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+            <div>
+              <h2 id="flipkart-zone-title" className="text-lg font-black text-slate-900 leading-tight tracking-tight">
+                Zone Summary
+              </h2>
+              <p className="text-xs font-bold text-slate-500 mt-0.5">
+                {formatReportDate(reportDate)} &bull; {summary.total || 0} Label{summary.total === 1 ? "" : "s"}
+              </p>
             </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors"
+            aria-label="Close"
+          >
+            <X size={20} strokeWidth={2.5} />
+          </button>
+        </div>
 
-            {(summary.batches ?? []).length > 0 && (
-              <div className="border-t border-slate-200/80 bg-slate-50/50 px-6 py-5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
-                  Processed Batches
-                </h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {summary.batches.map((batch, index) => (
+        <div className="p-6 space-y-6 max-h-[50vh] overflow-y-auto">
+          {Object.entries(groupedItems).map(([platform, items]) => {
+            const platformTotal = items.reduce((sum, it) => sum + it.label_count, 0);
+            return (
+              <div key={platform} className="flex flex-col gap-3">
+                <div className="flex items-center gap-3 px-1">
+                  <h3 className="font-black text-slate-800 text-sm tracking-tight">{platform}</h3>
+                  <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[11px] font-bold tabular-nums">
+                    {platformTotal}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2.5">
+                  {items.map((item) => (
                     <div
-                      key={batch.id}
-                      className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs hover:border-slate-300 transition-colors"
+                      key={item.zone}
+                      className="group bg-white px-3 py-2 rounded-[14px] border border-slate-200 shadow-sm flex items-center gap-3 hover:border-blue-300 hover:shadow-md transition-all cursor-default"
                     >
-                      <div className="flex justify-between items-start">
-                        <span className="text-slate-700 font-medium text-xs">
-                          {batch.platform || "Flipkart"} Batch {index + 1}
-                        </span>
-                        <span className="font-black text-slate-900 text-sm tabular-nums">
-                          {batch.label_count} <span className="text-[10px] font-bold text-slate-500 font-sans uppercase">labels</span>
-                        </span>
-                      </div>
-                      <div className="flex gap-2 w-full pt-2 border-t border-slate-100 mt-auto">
-                        <button
-                          type="button"
-                          onClick={() => onViewBatch(batch)}
-                          className="flex-1 rounded-lg border border-[#0F2137]/20 bg-[#0F2137]/5 py-1.5 text-xs font-bold text-[#0F2137] hover:bg-[#0F2137]/10 shadow-xs transition-colors"
-                        >
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteBatch && onDeleteBatch(batch)}
-                          className="flex-1 rounded-lg border border-rose-600/20 bg-rose-50 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 shadow-xs flex items-center justify-center gap-1 transition-colors"
-                        >
-                          <Trash2 size={12} />
-                          Delete
-                        </button>
-                      </div>
+                      <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">
+                        {item.zone}
+                      </span>
+                      <span className="text-base font-black text-[#0F2137] tabular-nums">
+                        {item.label_count}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
-            )}
+            );
+          })}
+        </div>
+
+        {(summary.batches ?? []).length > 0 && (
+          <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-5">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3.5 px-1">
+              Processed Batches
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {summary.batches.map((batch, index) => (
+                <div
+                  key={batch.id}
+                  className="group flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-blue-200 hover:shadow-md transition-all overflow-hidden"
+                >
+                  <div className="px-3.5 py-3 flex justify-between items-center border-b border-slate-50">
+                    <span className="text-slate-500 font-bold text-[10px] uppercase tracking-wider truncate pr-2">
+                      {batch.platform || "Flipkart"} #{index + 1}
+                    </span>
+                    <span className="font-black text-[#0F2137] text-sm tabular-nums shrink-0">
+                      {batch.label_count}
+                    </span>
+                  </div>
+                  <div className="flex bg-slate-50/50 divide-x divide-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => onDeleteBatch && onDeleteBatch(batch)}
+                      className="flex-1 py-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex justify-center"
+                      title="Delete Batch"
+                    >
+                      <Trash2 size={16} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -532,7 +591,7 @@ export default function DailyReportSection() {
   const [dailyReportLoading, setDailyReportLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [downloadingPlatform, setDownloadingPlatform] = useState(null);
-  const [selectedCard, setSelectedCard] = useState(null);
+  const [selectedPlatformFilter, setSelectedPlatformFilter] = useState("All");
   const [selectedZoneBatch, setSelectedZoneBatch] = useState(null);
   const [loadingZoneBatch, setLoadingZoneBatch] = useState(false);
   const [showMultiQtyOrders, setShowMultiQtyOrders] = useState(false);
@@ -623,6 +682,13 @@ export default function DailyReportSection() {
       };
     }).filter((card) => card.hasData);
   }, [marketplaceRows, salesReportSummary]);
+
+  const displayedRows = useMemo(() => {
+    if (selectedPlatformFilter === "All") {
+      return marketplaceRows;
+    }
+    return marketplaceRows.filter(row => row.platform === selectedPlatformFilter);
+  }, [selectedPlatformFilter, marketplaceRows]);
 
   const multiQtyTotal = useMemo(
     () => multiQtyOrders.reduce((sum, row) => sum + Number(row.qty || 0), 0),
@@ -732,7 +798,6 @@ export default function DailyReportSection() {
         ),
       );
       closeDeleteModal(true);
-      setSelectedCard(null);
       await loadDailyReport();
     } catch (error) {
       console.error(error);
@@ -818,196 +883,124 @@ export default function DailyReportSection() {
           <p className="text-xs text-slate-400 mt-1">Upload daily order files above to generate reports for this date.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {reportCards.map((card) => (
-            <article
-              key={card.name}
-              className="group rounded-2xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_12px_28px_rgba(15,33,55,0.08)] hover:bg-white/95"
-            >
-              <button
-                type="button"
-                onClick={() => setSelectedCard(card)}
-                className="w-full text-left p-5"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div
-                    className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${card.accent} flex items-center justify-center shrink-0 shadow-sm text-white`}
+        <div className="space-y-6">
+          {/* Main Table View */}
+          <div className="bg-white/70 backdrop-blur-md rounded-2xl shadow-xs border border-slate-200/80 overflow-hidden">
+            {/* Toolbar Tabs */}
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200/70 bg-slate-50/50">
+              <div className="flex flex-wrap gap-2">
+                {["All", ...reportCards.map(c => c.name)].map(platform => (
+                  <button
+                    key={platform}
+                    type="button"
+                    onClick={() => setSelectedPlatformFilter(platform)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-2 ${
+                      selectedPlatformFilter === platform
+                        ? "bg-[#0F2137] text-white"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    }`}
                   >
-                    <Package size={20} />
-                  </div>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${card.badge}`}
-                  >
-                    {card.orderCount} orders
-                  </span>
-                </div>
+                    <span>{platform === "All" ? "All Platforms" : platform}</span>
+                  </button>
+                ))}
+              </div>
 
-                <h3 className="text-base font-black text-slate-900 mt-4">
-                  {card.name}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                  {dailyReportDate}
-                </p>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-slate-50/80 border border-slate-200/60 px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Total Pieces
-                    </p>
-                    <p className="text-base font-black text-slate-900 tabular-nums">
-                      {card.totalQty}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50/80 border border-slate-200/60 px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Orders
-                    </p>
-                    <p className="text-base font-black text-slate-900 tabular-nums">
-                      {card.orderCount}
-                    </p>
-                  </div>
-                </div>
-
-                <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-[#0F2137] group-hover:underline">
-                  <Eye size={14} />
-                  View details
-                </span>
-              </button>
-
-              <div className="border-t border-slate-200/70 px-5 py-3 bg-white/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    downloadReportExcel(card.name);
-                  }}
-                  disabled={
-                    actionLoading && downloadingPlatform === card.name
-                  }
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0F2137] hover:underline disabled:opacity-50"
+                  onClick={() => printDailyReportRows(displayedRows, {
+                    date: dailyReportDate,
+                    platform: selectedPlatformFilter,
+                    title: `${selectedPlatformFilter} daily order details`,
+                  })}
+                  disabled={displayedRows.length === 0}
+                  title="Print details"
+                  className="p-2 rounded-xl bg-white border border-slate-200 text-[#0F2137] hover:bg-slate-50 disabled:opacity-40 transition shadow-xs"
+                >
+                  <Printer size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadReportExcel(selectedPlatformFilter)}
+                  disabled={actionLoading || displayedRows.length === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] text-white text-xs font-bold hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50 transition shadow-xs"
                 >
                   <Download size={14} />
-                  {downloadingPlatform === card.name
-                    ? "Downloading…"
-                    : "Download Excel"}
+                  {downloadingPlatform === selectedPlatformFilter && actionLoading ? "Downloading…" : "Excel"}
                 </button>
                 <button
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openDeleteModal({
-                      platform: card.name,
-                      label: card.name,
-                    });
-                  }}
+                  onClick={() => openDeleteModal({
+                    platform: selectedPlatformFilter,
+                    label: selectedPlatformFilter === "All" ? "all platforms" : selectedPlatformFilter,
+                  })}
                   disabled={actionLoading}
-                  title={`Delete ${card.name} report`}
-                  className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-40 shadow-xs"
+                  title={`Delete ${selectedPlatformFilter} report`}
+                  className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-white p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40 shadow-xs"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={16} />
                 </button>
               </div>
-            </article>
-          ))}
+            </div>
 
-          {multiQtyOrders.length > 0 && (
-            <article className="group rounded-2xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-amber-300 hover:shadow-md hover:bg-white/95">
-              <button
-                type="button"
-                onClick={() => setShowMultiQtyOrders(true)}
-                className="w-full text-left p-5"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 shadow-sm text-white">
-                    <ListOrdered size={20} />
-                  </div>
-                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold bg-amber-100 text-amber-900">
-                    Qty &gt; 1
-                  </span>
-                </div>
+            {/* Table */}
+            <ReportDetailTable 
+              rows={displayedRows} 
+              hidePlatformColumn={selectedPlatformFilter !== "All"} 
+            />
+          </div>
 
-                <h3 className="text-base font-black text-slate-900 mt-4">
-                  Multiple Quantity Orders
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                  {dailyReportDate}
-                </p>
+          {/* Small Cards Grid for Multi Qty & Zone Summary */}
+          {(multiQtyOrders.length > 0 || hasFlipkartZoneSummary) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {multiQtyOrders.length > 0 && (
+                <article className="group rounded-xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-amber-300 hover:shadow-md hover:bg-white/95">
+                  <button
+                    type="button"
+                    onClick={() => setShowMultiQtyOrders(true)}
+                    className="w-full text-left p-4 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 shadow-sm text-white">
+                        <ListOrdered size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Multiple Quantity
+                        </h3>
+                        <p className="text-xs text-slate-500 font-medium mt-0.5">
+                          {multiQtyOrders.length} orders · {multiQtyTotal} pcs
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </article>
+              )}
 
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-amber-50/80 border border-amber-200/60 px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Order lines
-                    </p>
-                    <p className="text-base font-black text-slate-900 tabular-nums">
-                      {multiQtyOrders.length}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-amber-50/80 border border-amber-200/60 px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Total qty
-                    </p>
-                    <p className="text-base font-black text-slate-900 tabular-nums">
-                      {multiQtyTotal}
-                    </p>
-                  </div>
-                </div>
-
-                <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 group-hover:underline">
-                  <Eye size={14} />
-                  View orders
-                </span>
-              </button>
-            </article>
-          )}
-
-          {hasFlipkartZoneSummary && (
-            <article className="group rounded-2xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-md hover:bg-white/95">
-              <button
-                type="button"
-                onClick={() => setShowFlipkartZoneSummary(true)}
-                className="w-full text-left p-5"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shrink-0 shadow-sm text-white">
-                    <Package size={20} />
-                  </div>
-                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold bg-blue-100 text-blue-800">
-                    Flipkart zones
-                  </span>
-                </div>
-
-                <h3 className="text-base font-black text-slate-900 mt-4">
-                  Zone Summary
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                  {formatReportDate(dailyReportDate)}
-                </p>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-blue-50/80 border border-blue-200/60 px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Zones
-                    </p>
-                    <p className="text-base font-black text-slate-900 tabular-nums">
-                      {flipkartZoneSummary.items.length}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-blue-50/80 border border-blue-200/60 px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Labels
-                    </p>
-                    <p className="text-base font-black text-slate-900 tabular-nums">
-                      {flipkartZoneSummary.total || 0}
-                    </p>
-                  </div>
-                </div>
-
-                <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-[#0F2137] group-hover:underline">
-                  <Eye size={14} />
-                  View zones
-                </span>
-              </button>
-            </article>
+              {hasFlipkartZoneSummary && (
+                <article className="group rounded-xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-md hover:bg-white/95">
+                  <button
+                    type="button"
+                    onClick={() => setShowFlipkartZoneSummary(true)}
+                    className="w-full text-left p-4 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shrink-0 shadow-sm text-white">
+                        <Package size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Flipkart Zones
+                        </h3>
+                        <p className="text-xs text-slate-500 font-medium mt-0.5">
+                          {flipkartZoneSummary.items.length} zones · {flipkartZoneSummary.total || 0} labels
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </article>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -1095,16 +1088,6 @@ export default function DailyReportSection() {
       <FlipkartZoneBatchModal
         batch={selectedZoneBatch}
         onClose={() => setSelectedZoneBatch(null)}
-      />
-
-      <ReportDetailModal
-        card={selectedCard}
-        reportDate={dailyReportDate}
-        onClose={() => setSelectedCard(null)}
-        onDownload={downloadReportExcel}
-        downloading={
-          actionLoading && downloadingPlatform === selectedCard?.name
-        }
       />
 
       <MultiQtyOrdersModal

@@ -40,8 +40,6 @@ class SKUMaster(Base):
 
     pack_of = Column(String)
 
-    full_color = Column(String)
-
     pieces = relationship(
         "SKUPiece",
         back_populates="sku_master",

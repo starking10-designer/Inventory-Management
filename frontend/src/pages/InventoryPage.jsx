@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import { API_BASE, getAdminKeyHeader } from "../api.js";
@@ -8,13 +8,9 @@ import {
   ChevronRight,
   Download,
   Warehouse,
-  Package,
   Search,
   Upload,
-  RefreshCw,
-  X,
   Layers,
-  Palette,
   SlidersHorizontal,
   Save,
   Edit3,
@@ -33,8 +29,8 @@ import {
 import ExcelHeaderFilter from "../components/ExcelHeaderFilter.jsx";
 
 const SIZE_ORDER_MAP = {
-  "XXS": 1, "XS": 2, "S": 3, "M": 4, "L": 5, "XL": 6,
-  "XXL": 7, "2XL": 7, "3XL": 8, "4XL": 9, "5XL": 10
+  "S": 1, "S": 2, "S": 3, "M": 4, "L": 5, "L": 6,
+  "L": 7, "2L": 7, "3L": 8, "4L": 9, "5L": 10
 };
 
 function getSortedSizes(rows) {
@@ -86,7 +82,7 @@ function getSavedSizes() {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return new Set(parsed);
     }
-  } catch (e) {}
+  } catch (e) { console.error(e); }
   return null;
 }
 
@@ -132,7 +128,7 @@ export default function InventoryPage() {
   const [productTypeSearch, setProductTypeSearch] = useState("");
   const [colorSearch, setColorSearch] = useState("");
   const [sizeSearch, setSizeSearch] = useState("");
-
+    
   // Table Data state
   const [inventoryRows, setInventoryRows] = useState(() => readInventoryCache("return")?.rows ?? []);
   const ALL_SIZES = useMemo(() => getSortedSizes(inventoryRows), [inventoryRows]);
@@ -167,8 +163,7 @@ export default function InventoryPage() {
     });
   }, [selectedStyleList, styleOptionMap]);
   
-  const [loading, setLoading] = useState(false);
-  const [returnsUploading, setReturnsUploading] = useState(false);
+    const [returnsUploading, setReturnsUploading] = useState(false);
   const [inventoryDownloading, setInventoryDownloading] = useState(false);
   const [editingCellId, setEditingCellId] = useState(null);
   const [editQty, setEditQty] = useState("");
