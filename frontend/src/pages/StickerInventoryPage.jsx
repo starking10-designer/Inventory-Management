@@ -1,199 +1,74 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import "../dashboard.css";
+import "../stock-inventory.css";
+import "../sticker-inventory.css";
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
+import * as XLSX from "xlsx";
 import { API_BASE, getAdminKeyHeader } from "../api.js";
 import {
+  Package,
+  ArrowUpRight,
   ChevronLeft,
-  ChevronDown,
-  ChevronRight,
   Download,
+  BarChart3,
   Tag,
-  Search,
   Upload,
-  Layers,
-  Palette,
-  SlidersHorizontal,
-  Save,
-  Edit3,
+  Eye,
+  Trash2,
+  RefreshCw,
+  X,
   Check,
-  RotateCcw,
+  Search,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   downloadInventoryExcel,
   inventoryDownloadErrorMessage,
 } from "../utils/downloadInventoryExcel.js";
-import {
-  clearInventoryCache,
-  readInventoryCache,
-  writeInventoryCache,
-} from "../utils/inventoryCache.js";
 import ExcelHeaderFilter from "../components/ExcelHeaderFilter.jsx";
 
-const DEFAULT_STICKER_COLORS = [
-  "1 black",
-  "2 white",
-  "3 grey",
-  "4 sandal",
-  "5 navy",
-  "6 pink",
-  "7 brown",
-  "8 olive",
-];
-
-const STORAGE_STYLES_KEY = "sticker_inventory_saved_styles";
-const STORAGE_COLORS_KEY = "sticker_inventory_saved_colors";
-
-function getSavedStyles() {
-  try {
-    const raw = localStorage.getItem(STORAGE_STYLES_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return new Set(parsed);
-    }
-  } catch (e) {
-    console.error("Failed to read saved styles from localStorage", e);
-  }
-  return null;
-}
-
-function getSavedColors() {
-  try {
-    const raw = localStorage.getItem(STORAGE_COLORS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return new Set(parsed);
-    }
-  } catch (e) {
-    console.error("Failed to read saved colors from localStorage", e);
-  }
-  return null;
-}
-
-function formatCellQty(qty) {
-  if (qty === undefined || qty === null || qty === 0) return "-";
-  return qty;
-}
-
 export default function StickerInventoryPage() {
-  // Sidebar options from SKU Master
-  const [sidebarOptions, setSidebarOptions] = useState({
-    product_types: [],
-    all_styles: [],
-    colors: [],
-  });
-  const [loadingOptions, setLoadingOptions] = useState(true);
-
-  // Checked state for Sidebar (persisted in localStorage)
-  const [checkedStyles, setCheckedStyles] = useState(new Set());
-  const [checkedColors, setCheckedColors] = useState(new Set(DEFAULT_STICKER_COLORS));
-  const [savedSnapshot, setSavedSnapshot] = useState({ styles: [], colors: [] });
-  const [expandedProductTypes, setExpandedProductTypes] = useState(new Set());
-
-  // Sidebar Edit Mode & Feedback
-  const [isEditingSidebar, setIsEditingSidebar] = useState(false);
-  const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
-
-  // Search within sidebar
-  const [productTypeSearch, setProductTypeSearch] = useState("");
-  const [colorSearch, setColorSearch] = useState("");
-
-  // Table Data state
-  const [rows, setRows] = useState(() => readInventoryCache("sticker")?.rows ?? []);
-  const styleOptionMap = useMemo(() => {
-    const entries = (sidebarOptions.style_options || []).map((opt) => [
-      String(opt.style || '').trim().toLowerCase(),
-      opt,
-    ]);
-    return new Map(entries);
-  }, [sidebarOptions.style_options]);
-  const selectedStyleList = useMemo(() => Array.from(checkedStyles), [checkedStyles]);
-  const availableColors = useMemo(() => {
-    const colors = new Set();
-    for (const styleName of selectedStyleList) {
-      const opt = styleOptionMap.get(styleName.trim().toLowerCase());
-      (opt?.colors || []).forEach((color) => colors.add(color));
-    }
-    return Array.from(colors).sort((a, b) => a.localeCompare(b));
-  }, [selectedStyleList, styleOptionMap]);
-  
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [stickerUploading, setStickerUploading] = useState(false);
   const [stickerDownloading, setStickerDownloading] = useState(false);
-  const [editingCellId, setEditingCellId] = useState(null);
-  const [editQty, setEditQty] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [stickerFile, setStickerFile] = useState(null);
+  const [previewRows, setPreviewRows] = useState(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewSearch, setPreviewSearch] = useState("");
+  const [previewStylesFilter, setPreviewStylesFilter] = useState([]);
+  const [previewColorsFilter, setPreviewColorsFilter] = useState([]);
+  const [previewSortField, setPreviewSortField] = useState("style");
+  const [previewSortAsc, setPreviewSortAsc] = useState(true);
+  const [previewSelectedRows, setPreviewSelectedRows] = useState([]);
 
-  // Table Column Filters & Sorting
+
   const [sortField, setSortField] = useState("style");
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedStylesFilter, setSelectedStylesFilter] = useState([]);
+  const [selectedColorsFilter, setSelectedColorsFilter] = useState([]);
   const [stockCondition, setStockCondition] = useState("all");
 
-  // Load Sidebar options & restore from localStorage
-  const loadSidebarOptions = async () => {
-    setLoadingOptions(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/sticker-sidebar-options`);
-      setSidebarOptions(data);
+  // Tab state
+  const [activeTab, setActiveTab] = useState("inventory");
 
-      const savedStyles = getSavedStyles();
-      const savedColors = getSavedColors();
+  // Deduction tab states
+  const [deductions, setDeductions] = useState([]);
+  const [deductionsLoading, setDeductionsLoading] = useState(false);
+  const [deductionFilters, setDeductionFilters] = useState({});
+  const [deductionSortField, setDeductionSortField] = useState("style");
+  const [deductionSortAsc, setDeductionSortAsc] = useState(true);
+  const [deductionDate, setDeductionDate] = useState(new Date().toLocaleDateString("en-CA"));
 
-      let initialStyles = new Set();
-      if (savedStyles && savedStyles.size > 0) {
-        initialStyles = savedStyles;
-      } else if (data.product_types && data.product_types.length > 0) {
-        const firstMpt = data.product_types[0];
-        setExpandedProductTypes(new Set([firstMpt.name]));
-        firstMpt.styles.forEach((st) => initialStyles.add(st));
-      } else if (data.all_styles && data.all_styles.length > 0) {
-        data.all_styles.slice(0, 10).forEach((st) => initialStyles.add(st));
-      }
-      setCheckedStyles(initialStyles);
-
-      let initialColors = new Set();
-      if (savedColors && savedColors.size > 0) {
-        initialColors = savedColors;
-      } else {
-        const standardColors = (data.colors || DEFAULT_STICKER_COLORS).filter((c) =>
-          DEFAULT_STICKER_COLORS.includes(c),
-        );
-        if (standardColors.length > 0) {
-          standardColors.forEach((c) => initialColors.add(c));
-        } else if (data.colors && data.colors.length > 0) {
-          data.colors.slice(0, 8).forEach((c) => initialColors.add(c));
-        }
-      }
-      setCheckedColors(initialColors);
-
-      setSavedSnapshot({
-        styles: Array.from(initialStyles),
-        colors: Array.from(initialColors),
-      });
-    } catch (error) {
-      console.error("Failed to load sticker sidebar options", error);
-    } finally {
-      setLoadingOptions(false);
-    }
-  };
-
-  useEffect(() => {
-    loadSidebarOptions();
-  }, []);
-
-  // Load actual sticker inventory rows
-  const loadStickerInventory = async ({ forceRefresh = false } = {}) => {
-    const cached = readInventoryCache("sticker");
-    if (cached && !forceRefresh) {
-      setRows(cached.rows ?? []);
-      return;
-    }
-
+  const loadStickerInventory = async () => {
     setLoading(true);
     try {
       const { data } = await axios.get(`${API_BASE}/sticker-inventory`);
-      const rows = data.rows ?? [];
-      setRows(rows);
-      writeInventoryCache("sticker", rows);
+      const fetchedRows = data.rows ?? [];
+      setRows(fetchedRows);
     } catch (e) {
       console.error(e);
       alert("Failed to load sticker inventory");
@@ -203,210 +78,260 @@ export default function StickerInventoryPage() {
     }
   };
 
+  const loadTodayDeductions = async (dateStr = null) => {
+    setDeductionsLoading(true);
+    try {
+      const targetDate = dateStr || deductionDate;
+      const { data } = await axios.get(
+        `${API_BASE}/api/analytics/inventory-deductions/today?inventory_type=sticker&query_date=${targetDate}`
+      );
+      setDeductions(data.data ?? []);
+    } catch (e) {
+      console.error("Failed to load deductions:", e);
+      setDeductions([]);
+    } finally {
+      setDeductionsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadStickerInventory();
+    loadTodayDeductions();
   }, []);
 
-  // Save Sidebar Selection to localStorage
-  const handleSaveSidebarSelection = () => {
-    const stylesArray = Array.from(checkedStyles);
-    const colorsArray = Array.from(checkedColors);
+  const uniqueStyles = useMemo(() => {
+    const s = new Set();
+    rows.forEach((r) => s.add(r.style.trim()));
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
 
-    try {
-      localStorage.setItem(STORAGE_STYLES_KEY, JSON.stringify(stylesArray));
-      localStorage.setItem(STORAGE_COLORS_KEY, JSON.stringify(colorsArray));
-      setSavedSnapshot({ styles: stylesArray, colors: colorsArray });
-      setIsEditingSidebar(false);
-      setSaveSuccessMsg(true);
-      setTimeout(() => setSaveSuccessMsg(false), 2500);
-    } catch (e) {
-      console.error("Failed to save selection to localStorage", e);
-      alert("Failed to save selection to browser storage.");
-    }
-  };
+  const uniqueColors = useMemo(() => {
+    const c = new Set();
+    rows.forEach((r) => c.add(r.color.trim()));
+    return Array.from(c).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
 
-  // Cancel Sidebar edits
-  const handleCancelSidebarEdit = () => {
-    setCheckedStyles(new Set(savedSnapshot.styles));
-    setCheckedColors(new Set(savedSnapshot.colors));
-    setIsEditingSidebar(false);
-  };
+  const filteredAndSortedRows = useMemo(() => {
+    let list = [...rows];
+    const query = searchQuery.trim().toLowerCase();
+    if (query) list = list.filter(row => [row.style, row.color].some(value => String(value || "").toLowerCase().includes(query)));
 
-  // Build pivot rows from selected styles and SKU master availability
-  const { grouped } = useMemo(() => {
-    const existingMap = new Map();
-    for (const r of rows) {
-      const key = `${r.style.trim().toLowerCase()}\x00${r.color.trim().toLowerCase()}`;
-      existingMap.set(key, { id: r.id, qty: Number(r.qty || 0) });
+    if (selectedStylesFilter.length > 0) {
+      list = list.filter((r) => selectedStylesFilter.includes(r.style.trim()));
     }
 
-    const tableRows = [];
-
-    for (const styleName of selectedStyleList) {
-      const cells = {};
-      let total = 0;
-      const styleOpt = styleOptionMap.get(styleName.trim().toLowerCase());
-      const styleColors = styleOpt?.colors || [];
-
-      for (const colorName of styleColors) {
-        const key = `${styleName.trim().toLowerCase()}\x00${colorName.trim().toLowerCase()}`;
-        const found = existingMap.get(key);
-        const qty = found ? found.qty : 0;
-        cells[colorName] = {
-          id: found ? found.id : null,
-          style: styleName,
-          color: colorName,
-          qty,
-        };
-        total += qty;
-      }
-
-      tableRows.push({
-        style: styleName,
-        cells,
-        total,
-      });
+    if (selectedColorsFilter.length > 0) {
+      list = list.filter((r) => selectedColorsFilter.includes(r.color.trim()));
     }
 
-    return { grouped: tableRows };
-  }, [rows, selectedStyleList, styleOptionMap]);
-  // Sidebar toggle helpers
-  const toggleStyle = (styleName) => {
-    if (!isEditingSidebar) return;
-    setCheckedStyles((prev) => {
-      const next = new Set(prev);
-      if (next.has(styleName)) {
-        next.delete(styleName);
-      } else {
-        next.add(styleName);
+    if (stockCondition === "in_stock") {
+      list = list.filter((row) => Number(row.qty || 0) > 0);
+    } else if (stockCondition === "zero_stock") {
+      list = list.filter((row) => Number(row.qty || 0) === 0);
+    }
+
+    list.sort((a, b) => {
+      let comparison = 0;
+      if (sortField === "style") {
+        comparison = a.style.localeCompare(b.style);
+      } else if (sortField === "color") {
+        comparison = a.color.localeCompare(b.color);
+      } else if (sortField === "qty") {
+        comparison = Number(a.qty || 0) - Number(b.qty || 0);
       }
-      return next;
+      return sortAsc ? comparison : -comparison;
     });
+
+    return list;
+  }, [rows, searchQuery, selectedStylesFilter, selectedColorsFilter, stockCondition, sortField, sortAsc]);
+
+  const handleSort = (field, asc) => {
+    setSortField(field);
+    setSortAsc(asc);
   };
 
-  const toggleProductType = (mpt) => {
-    if (!isEditingSidebar) return;
-    const allStylesInMpt = mpt.styles;
-    const allChecked = allStylesInMpt.every((st) => checkedStyles.has(st));
+  const grandTotal = useMemo(
+    () => filteredAndSortedRows.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+    [filteredAndSortedRows],
+  );
 
-    setCheckedStyles((prev) => {
-      const next = new Set(prev);
-      if (allChecked) {
-        allStylesInMpt.forEach((st) => next.delete(st));
-      } else {
-        allStylesInMpt.forEach((st) => next.add(st));
+  const deductionColumns = ["platform", "style", "color", "qty"];
+
+  const filteredDeductions = useMemo(() => {
+    let result = [...deductions];
+    const query = searchQuery.trim().toLowerCase();
+    if (query) result = result.filter(row => [row.style, row.color].some(value => String(value || "").toLowerCase().includes(query)));
+    for (const col of deductionColumns) {
+      if (deductionFilters[col]?.length > 0) {
+        result = result.filter(d => deductionFilters[col].includes(String(d[col] || "")));
       }
-      return next;
-    });
-  };
-
-  const toggleColor = (colorName) => {
-    if (!isEditingSidebar) return;
-    setCheckedColors((prev) => {
-      const next = new Set(prev);
-      if (next.has(colorName)) {
-        next.delete(colorName);
-      } else {
-        next.add(colorName);
+    }
+    result.sort((a, b) => {
+      let valA = a[deductionSortField];
+      let valB = b[deductionSortField];
+      if (deductionSortField === "qty") {
+        return deductionSortAsc ? Number(valA||0) - Number(valB||0) : Number(valB||0) - Number(valA||0);
       }
-      return next;
+      valA = String(valA || "").toLowerCase();
+      valB = String(valB || "").toLowerCase();
+      if (valA < valB) return deductionSortAsc ? -1 : 1;
+      if (valA > valB) return deductionSortAsc ? 1 : -1;
+      return 0;
     });
+    return result;
+  }, [deductions, searchQuery, deductionFilters, deductionSortField, deductionSortAsc]);
+
+  const deductionTotal = useMemo(
+    () => filteredDeductions.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+    [filteredDeductions]
+  );
+
+  const startEditing = (row) => {
+    if (!row || !row.id) return;
+    setEditingCellId(row.id);
+    setEditQty(String(row.qty));
   };
 
-  const selectAllStyles = () => {
-    if (!isEditingSidebar) return;
-    setCheckedStyles(new Set(sidebarOptions.all_styles));
+  const cancelEditing = () => {
+    setEditingCellId(null);
+    setEditQty("");
   };
 
-  const deselectAllStyles = () => {
-    if (!isEditingSidebar) return;
-    setCheckedStyles(new Set());
-  };
-
-  const selectAllColors = () => {
-    if (!isEditingSidebar) return;
-    setCheckedColors(new Set(sidebarOptions.colors));
-  };
-
-  const selectDefaultColors = () => {
-    if (!isEditingSidebar) return;
-    setCheckedColors(new Set(DEFAULT_STICKER_COLORS));
-  };
-
-  const deselectAllColors = () => {
-    if (!isEditingSidebar) return;
-    setCheckedColors(new Set());
-  };
-
-  const toggleAccordion = (name) => {
-    setExpandedProductTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
-  };
-
-  // Save Sticker Cell Qty
-  const saveStickerQty = async (id) => {
-    const qty = parseInt(editQty, 10);
-    if (Number.isNaN(qty) || qty < 0) {
-      alert("Enter a valid non-negative quantity");
+  const saveCellQty = async (row) => {
+    if (!row || !row.id) return cancelEditing();
+    const newQty = Number(editQty);
+    if (isNaN(newQty) || newQty < 0) {
+      alert("Invalid quantity.");
+      return;
+    }
+    if (newQty === row.qty) {
+      cancelEditing();
       return;
     }
 
     try {
       await axios.patch(
-        `${API_BASE}/sticker-inventory/${id}`,
-        { qty },
-        { headers: getAdminKeyHeader() },
+        `${API_BASE}/sticker-inventory/${row.id}`,
+        { qty: newQty },
+        { headers: getAdminKeyHeader() }
       );
-      setEditingCellId(null);
-      await loadStickerInventory({ forceRefresh: true });
-    } catch (error) {
-      console.error(error);
-      const msg = error.response?.data?.detail;
-      alert(
-        typeof msg === "string"
-          ? msg
-          : "Save failed. Set VITE_ADMIN_KEY in frontend .env to match server ADMIN_API_KEY.",
+      setRows((prev) =>
+        prev.map((r) => (r.id === row.id ? { ...r, qty: newQty } : r))
       );
+      cancelEditing();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update quantity.");
     }
   };
 
-  // Upload Sticker Excel
-  const uploadStickerFile = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+
+
+  const handlePreview = () => {
+    if (!stickerFile) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet);
+
+        const normalized = json.map((row, idx) => {
+          const newRow = { _id: idx };
+          for (let key in row) {
+             newRow[key.trim().toLowerCase()] = row[key];
+          }
+          return newRow;
+        }).filter(r => {
+          const style = String(r.style || "").trim();
+          const color = String(r.color || "").trim();
+          const qty = Number(r.qty) || 0;
+          return (style || color) && qty > 0;
+        });
+
+        setPreviewRows(normalized);
+        setShowPreviewModal(true);
+        setPreviewSelectedRows([]);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to parse Excel file.");
+      }
+    };
+    reader.readAsArrayBuffer(stickerFile);
+  };
+
+  const executePreviewUpload = async () => {
+    if (!previewRows || previewRows.length === 0) {
+      alert("No valid rows to upload.");
+      return;
+    }
 
     setStickerUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file, file.name || "sticker-inventory.xlsx");
-      const { data } = await axios.post(
-        `${API_BASE}/upload-sticker-inventory`,
-        formData,
-        { headers: getAdminKeyHeader() },
-      );
-      await loadStickerInventory();
-      await loadSidebarOptions();
+      const worksheetData = previewRows.map(r => ({ style: r.style, color: r.color, qty: r.qty }));
+      const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Stickers");
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const fileData = new Blob([excelBuffer], { type: 'application/octet-stream' });
+      const fd = new FormData();
+      fd.append("file", fileData, stickerFile.name || "sticker-inventory.xlsx");
 
-      const unmatchedMessage = data.unmatched_count
-        ? ` ${data.unmatched_count} style row(s) did not match existing sticker inventory.`
-        : "";
-      clearInventoryCache("sticker");
-      alert(
-        `${data.message}. Added ${data.total_added ?? 0} stickers across ${data.updated_cells ?? 0} color cells.${unmatchedMessage}`,
-      );
+      const { data } = await axios.post(`${API_BASE}/upload-sticker-inventory`, fd, {
+        headers: getAdminKeyHeader(),
+      });
+      alert(`${data.message}. Added ${data.total_added ?? 0} stickers across ${data.updated_cells ?? 0} cells.`);
+      setShowPreviewModal(false);
+      setStickerFile(null);
+      setPreviewRows(null);
+      await loadStickerInventory();
     } catch (error) {
-      console.error(error);
-      alert(error.response?.data?.detail || "Sticker upload failed");
+      console.error("Upload error", error);
+      alert(`Upload failed: ${error.response?.data?.detail || error.message}`);
     } finally {
       setStickerUploading(false);
+    }
+  };
+
+  const uniquePreviewStyles = useMemo(() => Array.from(new Set(previewRows?.map(r => (r.style||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b)), [previewRows]);
+  const uniquePreviewColors = useMemo(() => Array.from(new Set(previewRows?.map(r => (r.color||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b)), [previewRows]);
+
+  const filteredPreviewRows = useMemo(() => {
+    if (!previewRows) return [];
+    let list = [...previewRows];
+    if (previewSearch.trim()) {
+      const q = previewSearch.toLowerCase();
+      list = list.filter(r => (r.style||"").toLowerCase().includes(q) || (r.color||"").toLowerCase().includes(q));
+    }
+    if (previewStylesFilter.length > 0) list = list.filter(r => previewStylesFilter.includes((r.style||"").trim()));
+    if (previewColorsFilter.length > 0) list = list.filter(r => previewColorsFilter.includes((r.color||"").trim()));
+
+    list.sort((a,b) => {
+      let cmp = 0;
+      if (previewSortField === "style") cmp = (a.style||"").localeCompare(b.style||"");
+      else if (previewSortField === "color") cmp = (a.color||"").localeCompare(b.color||"");
+      else if (previewSortField === "qty") cmp = (Number(a.qty)||0) - (Number(b.qty)||0);
+      return previewSortAsc ? cmp : -cmp;
+    });
+    return list;
+  }, [previewRows, previewSearch, previewStylesFilter, previewColorsFilter, previewSortField, previewSortAsc]);
+
+  const deleteSelectedPreviewRows = () => {
+    setPreviewRows(prev => prev.filter(r => !previewSelectedRows.includes(r._id)));
+    setPreviewSelectedRows([]);
+  };
+
+  const previewAllFilteredSelected = filteredPreviewRows?.length > 0 && filteredPreviewRows.every(r => previewSelectedRows.includes(r._id));
+  const handleSelectAllPreviewFiltered = (e) => {
+    if (e.target.checked) {
+      const ids = filteredPreviewRows.map(r => r._id);
+      setPreviewSelectedRows(prev => Array.from(new Set([...prev, ...ids])));
+    } else {
+      const ids = new Set(filteredPreviewRows.map(r => r._id));
+      setPreviewSelectedRows(prev => prev.filter(id => !ids.has(id)));
     }
   };
 
@@ -416,7 +341,7 @@ export default function StickerInventoryPage() {
       await downloadInventoryExcel(
         "sticker",
         "",
-        "sticker_inventory.xlsx",
+        "sticker_inventory.xlsx"
       );
     } catch (error) {
       console.error(error);
@@ -426,500 +351,361 @@ export default function StickerInventoryPage() {
     }
   };
 
-  // Filter & sort rows
-  const filteredAndSortedRows = useMemo(() => {
-    let list = [...grouped];
-
-    if (selectedStylesFilter.length > 0 && selectedStylesFilter.length < checkedStyles.size) {
-      list = list.filter((r) => selectedStylesFilter.includes(r.style));
-    }
-
-    if (stockCondition === "in_stock") {
-      list = list.filter((row) => row.total > 0);
-    } else if (stockCondition === "zero_stock") {
-      list = list.filter((row) => row.total === 0);
-    }
-
-    list.sort((a, b) => {
-      let comparison = 0;
-      if (sortField === "style") {
-        comparison = a.style.localeCompare(b.style);
-      } else if (sortField === "total") {
-        comparison = a.total - b.total;
-      }
-      return sortAsc ? comparison : -comparison;
-    });
-
-    return list;
-  }, [grouped, selectedStylesFilter, checkedStyles, stockCondition, sortField, sortAsc]);
-
-  const handleSort = (field, asc) => {
-    setSortField(field);
-    setSortAsc(asc);
-  };
-
-  const grandTotal = useMemo(
-    () => filteredAndSortedRows.reduce((sum, r) => sum + r.total, 0),
-    [filteredAndSortedRows],
-  );
-
-  // Filtered product types for sidebar search
-  const filteredProductTypes = useMemo(() => {
-    if (!productTypeSearch.trim()) return sidebarOptions.product_types;
-    const term = productTypeSearch.trim().toLowerCase();
-    return sidebarOptions.product_types
-      .map((mpt) => ({
-        ...mpt,
-        styles: mpt.styles.filter(
-          (st) => st.toLowerCase().includes(term) || mpt.name.toLowerCase().includes(term),
-        ),
-      }))
-      .filter((mpt) => mpt.styles.length > 0);
-  }, [sidebarOptions.product_types, productTypeSearch]);
-
-  // Filtered colors for sidebar search
-  const filteredColors = useMemo(() => {
-    if (!colorSearch.trim()) return sidebarOptions.colors;
-    const term = colorSearch.trim().toLowerCase();
-    return sidebarOptions.colors.filter((c) => c.toLowerCase().includes(term));
-  }, [sidebarOptions.colors, colorSearch]);
-
-  const colSpan = 2 + availableColors.length;
+  const colSpan = 3;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col">
-      {/* Top Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="mx-auto flex max-w-full flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/#inventory"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
-            >
-              <ChevronLeft size={16} />
-              Inventory
-            </Link>
-            <div>
-              <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Tag size={20} className="text-[#0F2137]" />
-                Sticker Inventory
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">
-                Detailed DTF Sticker quantity
-              </p>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={downloadStickerInventory}
-              disabled={stickerDownloading || filteredAndSortedRows.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-40 transition"
-            >
-              <Download size={14} />
-              {stickerDownloading ? "Downloading..." : "Export Excel"}
-            </button>
-
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-2 text-xs font-bold text-white shadow-sm hover:from-[#1E3A66] hover:to-[#0F2137] transition disabled:opacity-50">
-              <Upload size={14} />
-              {stickerUploading ? "Uploading..." : "Upload Stickers"}
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                disabled={stickerUploading}
-                onChange={uploadStickerFile}
-              />
-            </label>
-          </div>
+    <div className="stock-inventory-page sticker-inventory-page">
+      <WorkspaceTopBar>
+        <div className="stock-page-heading">
+          <Link to="/#inventory" className="stock-back-link" aria-label="Back to Inventory"><ChevronLeft size={18} /></Link>
+          <span className="stock-page-icon"><Tag size={20} /></span>
+          <div><h1>Sticker Inventory</h1><p>Sticker stock, uploads &amp; deductions</p></div>
         </div>
-      </header>
-
-      {/* Main Layout: Sidebar on Left + Table on Right */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar */}
-        <aside className="w-[320px] bg-slate-50/60 border-r border-slate-200/60 backdrop-blur-xl flex flex-col shrink-0 h-[calc(100vh-73px)] shadow-[4px_0_24px_-12px_rgba(0,0,0,0.1)] relative z-20">
-          {/* Sidebar Top Header with Edit & Save Buttons */}
-          <div className="p-5 border-b border-slate-200/80 bg-white/40 backdrop-blur-md space-y-4 shadow-sm z-10 relative">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#0F2137] to-[#1E3A66] text-white shadow-sm">
-                  <SlidersHorizontal size={14} />
-                </div>
-                <span className="text-[13px] font-black uppercase tracking-widest text-slate-800">
-                  Filters
-                </span>
-              </div>
-              <span className="rounded-full bg-slate-200/80 px-2.5 py-1 text-[10px] font-extrabold text-slate-700 shadow-xs border border-slate-300/50">
-                {checkedStyles.size} Styles
-              </span>
+      </WorkspaceTopBar>
+      <main className="stock-page-content">
+        <section className="stock-kpi-grid" aria-label="Sticker overview and upload">
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Selected date deductions</span><span className="dashboard-icon"><Package size={21} /></span></div>
+            <strong>{loading || deductionsLoading ? "..." : deductions.reduce((sum, row) => sum + (Number(row.qty) || 0), 0).toLocaleString("en-IN")}</strong>
+            <p>Stickers deducted on <time dateTime={deductionDate}>{deductionDate}</time></p>
+          </article>
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Total stickers</span><span className="dashboard-icon blue"><Tag size={21} /></span></div>
+            <strong>{loading ? "..." : rows.reduce((sum, row) => sum + Number(row.qty || 0), 0).toLocaleString("en-IN")}</strong><p>Units available across all styles</p>
+          </article>
+          <Link to="/sticker-inventory/sticker-analysis" className="dashboard-action">
+            <div className="dashboard-card-top"><span>Sticker insights</span><span className="dashboard-icon amber"><BarChart3 size={21} /></span></div>
+            <h3>Explore analytics</h3><p>Stock levels &amp; upload activity</p>
+            <div className="dashboard-card-foot">View analysis <ArrowUpRight size={16} /></div>
+          </Link>
+          <section className="stock-import-panel" aria-labelledby="sticker-upload-title">
+            <div className="stock-import-heading"><span className="stock-import-icon"><Upload size={18} /></span><h2 id="sticker-upload-title">Upload stickers</h2><span className="stock-file-status">{stickerFile ? "File ready" : "Excel"}</span></div>
+            <div className="stock-upload-field" data-ready={!!stickerFile}>
+              <label className="stock-upload-label">
+                <input type="file" accept=".xlsx,.xls,.csv" className="stock-file-input" aria-label="Upload sticker Excel file" disabled={!!stickerFile} onChange={e => { const file = e.target.files?.[0]; if (file) setStickerFile(file); e.target.value = ""; }} />
+                <span className="stock-file-icon">{stickerFile ? <Check size={30} /> : <FileSpreadsheet size={30} />}</span>
+                <strong title={stickerFile?.name}>{stickerFile ? stickerFile.name : "Choose sticker file"}</strong>
+                <span>{stickerFile ? "Ready to preview" : "XLSX, XLS or CSV"}</span>
+              </label>
             </div>
-
-            {/* Edit & Save Button Controls */}
-            <div className="flex flex-col gap-2.5">
-              {isEditingSidebar ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCancelSidebarEdit}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300/80 bg-white/80 backdrop-blur px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-800 shadow-xs transition-all active:scale-95"
-                  >
-                    <RotateCcw size={14} />
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveSidebarSelection}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-700 px-3 py-2 text-xs font-bold text-white shadow-[0_4px_12px_-4px_rgba(16,185,129,0.5)] hover:from-emerald-600 hover:to-emerald-800 transition-all active:scale-95 border border-emerald-600/50"
-                  >
-                    <Save size={14} />
-                    Save
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingSidebar(true)}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-extrabold text-slate-800 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] border border-slate-200/80 hover:border-[#0F2137]/30 hover:shadow-[0_4px_12px_-4px_rgba(15,33,55,0.15)] transition-all active:scale-[0.98] group"
-                >
-                  <Edit3 size={15} className="text-slate-400 group-hover:text-[#0F2137] transition-colors" />
-                  Edit Active Inventory
-                </button>
-              )}
+            <div className="stock-import-footer">
+              <button type="button" onClick={() => { setStickerFile(null); setPreviewRows(null); setPreviewSelectedRows([]); setShowPreviewModal(false); }} disabled={!stickerFile || stickerUploading} className="stock-clear-button"><Trash2 size={14} /> Clear file</button>
+              <button type="button" onClick={handlePreview} disabled={!stickerFile || stickerUploading} className="stock-preview-button"><Eye size={15} /> Preview stickers</button>
             </div>
-
-            {/* Save Success Alert Banner */}
-            {saveSuccessMsg && (
-              <div className="flex items-center gap-2 rounded-xl bg-emerald-50/80 backdrop-blur border border-emerald-200/80 px-3 py-2 text-[11px] font-bold text-emerald-800 animate-in slide-in-from-top-2 fade-in duration-300 shadow-xs">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-200/50">
-                  <Check size={12} className="text-emerald-700" />
-                </div>
-                Selection saved successfully.
-              </div>
-            )}
+          </section>
+        </section>
+        <div className="stock-table-panel" aria-label="Sticker inventory records">
+          <div className="stock-table-toolbar">
+            <div className="stock-table-tabs" role="group" aria-label="Sticker inventory view">
+              <button onClick={() => setActiveTab("inventory")} aria-pressed={activeTab === "inventory"}>Current stock</button>
+              <button onClick={() => { setActiveTab("deductions"); loadTodayDeductions(); }} aria-pressed={activeTab === "deductions"}>Deductions</button>
+            </div>
+            <div className="stock-table-controls">
+              {activeTab === "deductions" && <input type="date" aria-label="Sticker deductions date" value={deductionDate} onChange={e => { setDeductionDate(e.target.value); loadTodayDeductions(e.target.value); }} className="stock-deduction-date" />}
+              <label className="stock-search"><Search size={16} /><input type="search" aria-label="Search sticker inventory" placeholder="Search style or color..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} /></label>
+              {activeTab === "inventory" && (selectedStylesFilter.length > 0 || selectedColorsFilter.length > 0 || stockCondition !== "all") && <button className="sticker-clear-filters" onClick={() => { setSelectedStylesFilter([]); setSelectedColorsFilter([]); setStockCondition("all"); }}>Clear filters</button>}
+              {activeTab === "deductions" && Object.values(deductionFilters).some(v => v?.length > 0) && <button className="sticker-clear-filters" onClick={() => setDeductionFilters({})}>Clear filters</button>}
+              <button onClick={loadStickerInventory} disabled={loading} className="stock-refresh-button" title="Refresh stickers" aria-label="Refresh stickers"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+              <button onClick={downloadStickerInventory} disabled={stickerDownloading || !filteredAndSortedRows.length} className="stock-export-button"><Download size={15} />{stickerDownloading ? "Exporting..." : "Export stickers"}</button>
+            </div>
           </div>
+          <div className="stock-table-scroll" data-lenis-prevent tabIndex={0} aria-label="Scrollable sticker inventory table">
 
-          {/* Scrollable Sidebar Filters */}
-          <div className="flex-1 overflow-y-auto px-5 py-6 space-y-8 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-            {/* Section 1: Main Product Types & Styles */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 font-black text-xs text-slate-800 tracking-wide uppercase">
-                  <Layers size={14} className="text-slate-400" />
-                  <span>Product Categories</span>
-                </div>
-                {isEditingSidebar && (
-                  <div className="flex gap-2 text-[10px] font-bold text-slate-500">
-                    <button type="button" onClick={selectAllStyles} className="hover:text-[#0F2137] transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200/50">
-                      All
-                    </button>
-                    <button type="button" onClick={deselectAllStyles} className="hover:text-rose-600 transition-colors px-1.5 py-0.5 rounded hover:bg-rose-50">
-                      Clear
-                    </button>
-                  </div>
+            {/* ── INVENTORY TAB ── */}
+            {activeTab === "inventory" && (
+            <table className="glass-table stock-data-table sticker-data-table">
+              <thead className="sticky top-0 z-10 glass text-xs font-extrabold uppercase tracking-widest text-slate-800 font-medium border-b-2 border-slate-200 shadow-sm">
+                <tr>
+                  <th>
+                    <ExcelHeaderFilter
+                      label="Style"
+                      columnKey="style"
+                      values={uniqueStyles}
+                      selectedValues={selectedStylesFilter}
+                      onFilterChange={setSelectedStylesFilter}
+                      sortField={sortField}
+                      sortAsc={sortAsc}
+                      onSort={handleSort}
+                      align="left"
+                    />
+                  </th>
+                  <th>
+                    <ExcelHeaderFilter
+                      label="Color"
+                      columnKey="color"
+                      values={uniqueColors}
+                      selectedValues={selectedColorsFilter}
+                      onFilterChange={setSelectedColorsFilter}
+                      sortField={sortField}
+                      sortAsc={sortAsc}
+                      onSort={handleSort}
+                      align="left"
+                    />
+                  </th>
+                  <th>
+                    <ExcelHeaderFilter
+                      label="Qty"
+                      columnKey="qty"
+                      sortField={sortField}
+                      sortAsc={sortAsc}
+                      onSort={handleSort}
+                      align="right"
+                      isNumeric={true}
+                      numericStockFilter={stockCondition}
+                      onNumericStockChange={setStockCondition}
+                    />
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAndSortedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-16 text-center text-slate-800 font-medium font-medium">
+                      {loading ? "Loading..." : "No sticker rows found."}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAndSortedRows.map((row, idx) => (
+                    <tr
+                      key={row.id}
+                      className="sticker-data-row"
+                    >
+                      <td title={row.style}>
+                        {row.style || "-"}
+                      </td>
+                      <td title={row.color}>
+                        {row.color || "-"}
+                      </td>
+                      <td>
+                        <span className={`font-bold ${row.qty === 0 ? "text-slate-800 font-medium" : row.qty < 5 ? "text-orange-600" : "text-slate-700"}`}>
+                          {row.qty}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
                 )}
-              </div>
+              </tbody>
+              {filteredAndSortedRows.length > 0 && (
+                <tfoot className="sticky bottom-0 z-10 glass/95 backdrop-blur-md border-t border-slate-200">
+                  <tr>
+                    <td colSpan={2}>
+                      Grand Total
+                    </td>
+                    <td>
+                      {grandTotal.toLocaleString()}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+            )}
 
-              {/* Product Type Search Box */}
-              <div className="relative group">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#0F2137] transition-colors" />
-                <input
-                  type="text"
-                  value={productTypeSearch}
-                  onChange={(e) => setProductTypeSearch(e.target.value)}
-                  placeholder="Find styles..."
-                  className="w-full rounded-xl border border-slate-200/80 bg-white/60 py-2 pl-9 pr-3 text-xs font-medium text-slate-800 placeholder-slate-400 outline-none focus:border-[#0F2137]/40 focus:bg-white focus:ring-4 focus:ring-[#0F2137]/5 transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.02)]"
-                />
-              </div>
-
-              {/* Product Types Tree List */}
-              {loadingOptions ? (
-                <div className="py-8 text-center text-xs font-bold text-slate-400 animate-pulse flex flex-col items-center gap-2">
-                  <div className="h-4 w-4 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin" />
-                  Loading Catalog...
-                </div>
-              ) : filteredProductTypes.length === 0 ? (
-                <div className="py-6 text-center text-xs font-medium text-slate-400 bg-white/40 rounded-xl border border-dashed border-slate-200">
-                  No matches found.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredProductTypes.map((mpt) => {
-                    const isExpanded = expandedProductTypes.has(mpt.name) || Boolean(productTypeSearch.trim());
-                    const allMptStylesChecked = mpt.styles.length > 0 && mpt.styles.every((st) => checkedStyles.has(st));
-                    const someMptStylesChecked = mpt.styles.some((st) => checkedStyles.has(st));
-
+            {/* ── TODAY'S DEDUCTION TAB ── */}
+            {activeTab === "deductions" && (
+            <table className="glass-table stock-data-table sticker-data-table">
+              <thead className="sticky top-0 z-10 glass text-xs font-extrabold uppercase tracking-widest text-slate-800 font-medium border-b-2 border-slate-200 shadow-sm">
+                <tr>
+                  {deductionColumns.map(col => {
+                    const uniqueVals = Array.from(new Set(deductions.map(d => String(d[col] || "")).filter(Boolean)));
                     return (
-                      <div key={mpt.name} className="overflow-hidden rounded-xl border border-slate-200/60 bg-white/40 shadow-sm transition-all hover:border-slate-300 hover:bg-white/60">
-                        <div className="flex items-center justify-between gap-2 p-2.5">
-                          <label className={`flex items-center gap-2.5 text-xs font-extrabold text-slate-800 flex-1 min-w-0 ${isEditingSidebar ? 'cursor-pointer group' : 'cursor-default'}`}>
-                            <div className="relative flex items-center justify-center">
-                              <input
-                                type="checkbox"
-                                disabled={!isEditingSidebar}
-                                checked={allMptStylesChecked}
-                                ref={(el) => {
-                                  if (el) el.indeterminate = !allMptStylesChecked && someMptStylesChecked;
-                                }}
-                                onChange={() => toggleProductType(mpt)}
-                                className="peer h-4 w-4 shrink-0 rounded border-slate-300 text-[#0F2137] focus:ring-2 focus:ring-[#0F2137]/20 disabled:opacity-50 transition-all cursor-pointer"
-                              />
-                            </div>
-                            <span className="truncate transition-colors group-hover:text-[#0F2137]" title={mpt.name}>
-                              {mpt.name}
-                            </span>
-                            <span className="ml-auto rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
-                              {mpt.styles.length}
-                            </span>
-                          </label>
-
-                          <button
-                            type="button"
-                            onClick={() => toggleAccordion(mpt.name)}
-                            className="p-1 rounded-md text-slate-400 hover:bg-slate-200/50 hover:text-slate-800 transition-colors"
-                          >
-                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </button>
-                        </div>
-
-                        {isExpanded && (
-                          <div className="bg-slate-50/50 px-3 pb-3 pt-1 border-t border-slate-100/80">
-                            <div className="space-y-0.5 border-l-2 border-slate-200/80 pl-2.5 ml-2 mt-1">
-                              {mpt.styles.map((styleCode) => {
-                                const isChecked = checkedStyles.has(styleCode);
-                                return (
-                                  <label
-                                    key={styleCode}
-                                    className={`flex items-center gap-3 rounded-lg px-2 py-1.5 text-xs transition-colors ${
-                                      isEditingSidebar 
-                                        ? isChecked ? 'bg-[#0F2137]/5 text-[#0F2137] font-bold' : 'hover:bg-slate-200/40 text-slate-600 font-medium hover:text-slate-900 cursor-pointer' 
-                                        : isChecked ? 'text-slate-800 font-bold' : 'text-slate-400 font-medium cursor-default'
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      disabled={!isEditingSidebar}
-                                      checked={isChecked}
-                                      onChange={() => toggleStyle(styleCode)}
-                                      className="h-3.5 w-3.5 rounded border-slate-300 text-[#0F2137] focus:ring-0 disabled:opacity-50 transition-all"
-                                    />
-                                    <span className="truncate tracking-tight">{styleCode}</span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <th key={col} className="px-5 py-4 min-w-[130px]">
+                        <ExcelHeaderFilter
+                          label={col.charAt(0).toUpperCase() + col.slice(1)}
+                          columnKey={col}
+                          values={uniqueVals}
+                          selectedValues={deductionFilters[col] || []}
+                          onFilterChange={(v) => setDeductionFilters(prev => ({ ...prev, [col]: v }))}
+                          sortField={deductionSortField}
+                          sortAsc={deductionSortAsc}
+                          onSort={(f, a) => { setDeductionSortField(f); setDeductionSortAsc(a); }}
+                          align={col === "qty" ? "right" : "left"}
+                          isNumeric={col === "qty"}
+                        />
+                      </th>
                     );
                   })}
-                </div>
-              )}
-            </div>
-          </div>
-        </aside>
-
-        {/* Main Content Area / Table */}
-        <main className="flex-1 p-6 overflow-auto space-y-4">
-          {/* Quick Info & Active Filter Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              <span>Showing:</span>
-              <span className="rounded bg-white border border-slate-200 px-2.5 py-1 text-slate-900 shadow-xs">
-                {filteredAndSortedRows.length} Styles
-              </span>
-              <span>({checkedStyles.size} Styles × {availableColors.length} Colors)</span>
-            </div>
-
-            {selectedStylesFilter.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setSelectedStylesFilter([])}
-                className="text-xs font-bold text-rose-600 hover:text-rose-800"
-              >
-                Clear Column Filters
-              </button>
-            )}
-          </div>
-
-          {/* Clean Modern Square Table Container */}
-          <section className="bg-white shadow-sm overflow-hidden border-none">
-            <div className="max-h-[calc(100vh-210px)] overflow-auto">
-              <table className="w-full text-center text-sm border-none">
-                <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {deductionsLoading ? (
+                  <tr><td colSpan={4} className="py-16 text-center text-slate-800 font-medium font-semibold">Loading deductions...</td></tr>
+                ) : filteredDeductions.length > 0 ? (
+                  filteredDeductions.map((row, idx) => (
+                    <tr key={row.id ?? idx} className="sticker-data-row">
+                      {deductionColumns.map(col => (
+                        <td key={col} className={`px-5 py-3.5 ${col === "qty" ? "text-right font-black text-[#0F2137] tabular-nums" : "font-medium text-slate-700"}`}>
+                          {row[col] || "-"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan={4} className="py-16 text-center text-slate-800 font-medium font-semibold">No sticker deductions found for today.</td></tr>
+                )}
+              </tbody>
+              {filteredDeductions.length > 0 && (
+                <tfoot className="sticky bottom-0 z-10 glass/95 backdrop-blur-md border-t border-slate-200">
                   <tr>
-                    {/* Style Header with Excel Filter */}
-                    <th className="px-4 py-3 text-left min-w-[200px]">
+                    <td colSpan={3}>Total Deducted on Date</td>
+                    <td>{deductionTotal.toLocaleString()}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+            )}
+
+          </div>
+        </div>
+
+      {/* Preview Modal */}
+      {showPreviewModal && previewRows && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 glass/40 backdrop-blur-sm">
+          <div className="stock-preview-modal w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between glass/50 shrink-0">
+              <div>
+                <h3 className="text-xl font-black text-slate-900">Preview sticker data</h3>
+                <p className="text-sm text-slate-800 font-medium font-medium mt-1">
+                  Review data before updating database
+                </p>
+              </div>
+              <button aria-label="Close sticker preview" onClick={() => setShowPreviewModal(false)} className="h-8 w-8 flex items-center justify-center rounded-lg glass border border-slate-200 text-slate-800 font-medium hover:text-slate-800 font-medium hover:glass transition shadow-sm">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="px-6 py-3 border-b border-slate-200 glass flex flex-wrap gap-4 items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="relative group">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-800 font-medium group-focus-within:text-[#0F2137] transition" size={14} />
+                  <input
+                    type="text"
+                    placeholder="Search preview..."
+                    value={previewSearch}
+                    onChange={e => setPreviewSearch(e.target.value)}
+                    className="h-8 w-56 rounded-lg border border-slate-200 glass pl-8 pr-3 text-sm font-medium text-slate-700 outline-none transition focus:border-[#0F2137] focus:glass"
+                  />
+                </div>
+                {previewSelectedRows.length > 0 && (
+                  <button
+                    onClick={deleteSelectedPreviewRows}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-rose-50 text-rose-600 font-bold text-xs border border-rose-200 hover:bg-rose-100 transition"
+                  >
+                    <Trash2 size={14} /> Delete Selected ({previewSelectedRows.length})
+                  </button>
+                )}
+              </div>
+              <div className="text-xs font-bold text-slate-800 font-medium">
+                Total Rows: {previewRows.length} | Filtered: {filteredPreviewRows?.length}
+              </div>
+            </div>
+
+            {/* Content Table */}
+            <div className="flex-1 overflow-auto" data-lenis-prevent>
+              <table className="glass-table stock-data-table sticker-data-table">
+                <thead className="sticky top-0 glass/90 backdrop-blur border-b border-slate-200 text-xs font-bold uppercase text-slate-800 font-medium tracking-wider z-20 shadow-sm">
+                  <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={previewAllFilteredSelected}
+                        onChange={handleSelectAllPreviewFiltered}
+                        className="rounded border-slate-300 text-[#0F2137] focus:ring-0"
+                      />
+                    </th>
+                    <th>
                       <ExcelHeaderFilter
                         label="Style"
                         columnKey="style"
-                        values={Array.from(checkedStyles)}
-                        selectedValues={selectedStylesFilter}
-                        onFilterChange={setSelectedStylesFilter}
-                        sortField={sortField}
-                        sortAsc={sortAsc}
-                        onSort={handleSort}
+                        values={uniquePreviewStyles}
+                        selectedValues={previewStylesFilter}
+                        onFilterChange={setPreviewStylesFilter}
+                        sortField={previewSortField}
+                        sortAsc={previewSortAsc}
+                        onSort={(f, a) => { setPreviewSortField(f); setPreviewSortAsc(a); }}
                         align="left"
                       />
                     </th>
-
-                    {/* Color Headers (Columns) */}
-                    {availableColors.map((color) => (
-                      <th key={color} className="px-3 py-3 min-w-[75px] font-bold text-slate-600">
-                        {color}
-                      </th>
-                    ))}
-
-                    {/* Total Header with Stock Filter */}
-                    <th className="px-4 py-3 min-w-[110px] text-right">
+                    <th>
                       <ExcelHeaderFilter
-                        label="Total"
-                        columnKey="total"
-                        sortField={sortField}
-                        sortAsc={sortAsc}
-                        onSort={handleSort}
+                        label="Color"
+                        columnKey="color"
+                        values={uniquePreviewColors}
+                        selectedValues={previewColorsFilter}
+                        onFilterChange={setPreviewColorsFilter}
+                        sortField={previewSortField}
+                        sortAsc={previewSortAsc}
+                        onSort={(f, a) => { setPreviewSortField(f); setPreviewSortAsc(a); }}
+                        align="left"
+                      />
+                    </th>
+                    <th>
+                      <ExcelHeaderFilter
+                        label="Qty"
+                        columnKey="qty"
+                        sortField={previewSortField}
+                        sortAsc={previewSortAsc}
+                        onSort={(f, a) => { setPreviewSortField(f); setPreviewSortAsc(a); }}
                         align="right"
                         isNumeric={true}
-                        numericStockFilter={stockCondition}
-                        onNumericStockChange={setStockCondition}
                       />
                     </th>
                   </tr>
                 </thead>
-
                 <tbody className="divide-y divide-slate-100">
-                  {checkedStyles.size === 0 ? (
-                    <tr>
-                      <td colSpan={colSpan} className="px-4 py-20 text-center text-slate-500 font-medium">
-                        <div className="max-w-md mx-auto space-y-2">
-                          <SlidersHorizontal size={28} className="mx-auto text-slate-400" />
-                          <p className="text-sm font-bold text-slate-700">
-                            No styles selected
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            Click &ldquo;Edit Selection&rdquo; on the left sidebar to select the desired Main Product Types and Styles, then click &ldquo;Save Selection&rdquo;.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : filteredAndSortedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500 font-medium">
-                        No matching sticker stock rows found for current filters.
-                      </td>
-                    </tr>
+                  {filteredPreviewRows?.length === 0 ? (
+                    <tr><td colSpan={4} className="p-8 text-center text-slate-800 font-medium">No preview data matches.</td></tr>
                   ) : (
-                    filteredAndSortedRows.map((row) => (
-                      <tr
-                        key={row.style}
-                        className="hover:bg-slate-50/80 transition group"
-                      >
-                        <td className="px-4 py-3 text-left font-bold text-slate-900" title={row.style}>
-                          {row.style}
+                    filteredPreviewRows?.map((row, i) => (
+                      <tr key={row._id} className="hover:bg-blue-50/40 transition glass">
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={previewSelectedRows.includes(row._id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setPreviewSelectedRows(p => [...p, row._id]);
+                              else setPreviewSelectedRows(p => p.filter(id => id !== row._id));
+                            }}
+                            className="rounded border-slate-300 text-[#0F2137] focus:ring-0"
+                          />
                         </td>
-                        
-                        {availableColors.map((color) => {
-                          const cell = row.cells[color];
-                          const isEditing = cell && editingCellId !== null && editingCellId === cell.id;
-
-                          return (
-                            <td key={color} className="px-3 py-3 tabular-nums text-xs">
-                              {!cell?.id ? (
-                                <span className="text-slate-400">-</span>
-                              ) : isEditing ? (
-                                <div className="flex flex-col items-center gap-1">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={editQty}
-                                    onChange={(e) => setEditQty(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        saveStickerQty(cell.id);
-                                      }
-                                    }}
-                                    className="w-16 rounded border border-[#0F2137] bg-white px-1.5 py-0.5 text-center text-xs font-bold text-slate-900 outline-none"
-                                  />
-                                  <div className="flex gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => saveStickerQty(cell.id)}
-                                      className="text-[#0F2137] text-[10px] font-extrabold hover:underline"
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingCellId(null)}
-                                      className="text-slate-400 text-[10px]"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingCellId(cell.id);
-                                    setEditQty(String(cell?.qty));
-                                  }}
-                                  className={`w-full py-0.5 rounded transition font-semibold ${
-                                    cell?.qty > 0
-                                      ? "text-slate-900 font-bold hover:bg-slate-100"
-                                      : "text-slate-400 hover:text-slate-700"
-                                  }`}
-                                  title="Click to edit quantity"
-                                >
-                                  {formatCellQty(cell?.qty)}
-                                </button>
-                              )}
-                            </td>
-                          );
-                        })}
-                        <td className="px-4 py-3 text-right font-black text-slate-900 tabular-nums">
-                          {formatCellQty(row.total)}
-                        </td>
+                        <td>{row.style || "-"}</td>
+                        <td>{row.color || "-"}</td>
+                        <td>{row.qty}</td>
                       </tr>
                     ))
                   )}
                 </tbody>
-
-                {/* Table Footer Totals */}
-                {filteredAndSortedRows.length > 0 && (
-                  <tfoot className="border-t border-slate-200 bg-slate-50 text-xs font-extrabold text-slate-900">
-                    <tr>
-                      <td className="px-4 py-3 text-left uppercase tracking-wider text-slate-600">
-                        Total ({filteredAndSortedRows.length} rows)
-                      </td>
-                      {availableColors.map((color) => {
-                        const colTotal = filteredAndSortedRows.reduce(
-                          (sum, r) => sum + Number(r.cells[color]?.qty || 0),
-                          0,
-                        );
-                        return (
-                          <td key={`total-${color}`} className="px-3 py-3 tabular-nums text-slate-700 font-bold">
-                            {colTotal || "-"}
-                          </td>
-                        );
-                      })}
-                      <td className="px-4 py-3 text-right tabular-nums text-sm font-black text-emerald-800">
-                        {grandTotal.toLocaleString()}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
               </table>
             </div>
-          </section>
-        </main>
-      </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 glass shrink-0">
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-800 font-medium font-bold hover:glass transition"
+                disabled={stickerUploading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executePreviewUpload}
+                disabled={stickerUploading || previewRows.length === 0}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] text-white font-bold shadow hover:opacity-90 transition flex items-center gap-2"
+              >
+                {stickerUploading ? (
+                  <><RefreshCw size={16} className="animate-spin" /> Updating...</>
+                ) : (
+                  <><Check size={16} /> Ok, Update Data</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      </main>
     </div>
   );
 }
-
-
-

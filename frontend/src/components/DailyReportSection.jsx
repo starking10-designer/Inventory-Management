@@ -139,7 +139,7 @@ function ColumnFilter({ title, columnKey, options, activeFilters, onFilterChange
       <button 
         type="button" 
         onClick={() => setIsOpen(!isOpen)}
-        className={`p-1 rounded transition-colors ${isActive ? 'text-blue-600 bg-blue-100 hover:bg-blue-200' : 'text-slate-400 hover:bg-slate-200'}`}
+        className={`p-1 rounded transition-colors ${isActive ? 'text-blue-600 bg-blue-100 hover:bg-blue-200' : 'text-slate-800 font-medium hover:glass'}`}
         title={`Filter ${title}`}
       >
         <Filter size={13} strokeWidth={isActive ? 3 : 2} />
@@ -148,9 +148,9 @@ function ColumnFilter({ title, columnKey, options, activeFilters, onFilterChange
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute top-full left-0 mt-2 w-56 max-h-64 overflow-y-auto bg-white border border-slate-200 shadow-xl rounded-xl z-50 p-2 flex flex-col gap-1 font-normal normal-case tracking-normal">
-            <div className="flex justify-between items-center px-2 py-1 mb-1 border-b border-slate-100 sticky top-0 bg-white">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filter by {title}</span>
+          <div className="order-preview-filter absolute top-full left-0 mt-2 w-56 max-h-64 overflow-y-auto glass border border-slate-200 shadow-xl rounded-xl z-50 p-2 flex flex-col gap-1 font-normal normal-case tracking-normal">
+            <div className="flex justify-between items-center px-2 py-1 mb-1 border-b border-slate-100 sticky top-0 glass">
+              <span className="text-[10px] font-bold text-slate-800 font-medium uppercase tracking-wider">Filter by {title}</span>
               {isActive && (
                 <button onClick={handleClear} className="text-[10px] font-bold text-rose-600 hover:underline">
                   Clear
@@ -158,7 +158,7 @@ function ColumnFilter({ title, columnKey, options, activeFilters, onFilterChange
               )}
             </div>
             {options.map(opt => (
-              <label key={opt} className="flex items-start gap-2.5 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs font-medium text-slate-700">
+              <label key={opt} className="flex items-start gap-2.5 px-2 py-1.5 hover:glass rounded cursor-pointer text-xs font-medium text-slate-700">
                 <input 
                   type="checkbox"
                   checked={activeFilters.has(opt)}
@@ -169,7 +169,7 @@ function ColumnFilter({ title, columnKey, options, activeFilters, onFilterChange
               </label>
             ))}
             {options.length === 0 && (
-              <span className="px-2 py-3 text-xs text-slate-400 text-center">No options</span>
+              <span className="px-2 py-3 text-xs text-slate-800 font-medium text-center">No options</span>
             )}
           </div>
         </>
@@ -178,9 +178,8 @@ function ColumnFilter({ title, columnKey, options, activeFilters, onFilterChange
   );
 }
 
-function ReportDetailTable({ rows, hidePlatformColumn }) {
+export function ReportDetailTable({ rows, hidePlatformColumn }) {
   const [filters, setFilters] = useState({
-    date: new Set(),
     platform: new Set(),
     style: new Set(),
     color: new Set()
@@ -194,7 +193,6 @@ function ReportDetailTable({ rows, hidePlatformColumn }) {
 
   const uniqueValues = useMemo(() => {
     return {
-      date: [...new Set(styleSummaryRows.map(r => r.date || ""))].sort(),
       platform: [...new Set(styleSummaryRows.map(r => r.platform || ""))].sort(),
       style: [...new Set(styleSummaryRows.map(r => r.style || ""))].sort(),
       color: [...new Set(styleSummaryRows.map(r => r.color || ""))].sort()
@@ -207,38 +205,94 @@ function ReportDetailTable({ rows, hidePlatformColumn }) {
 
   const filteredRows = useMemo(() => {
     return styleSummaryRows.filter(row => {
-      const matchDate = filters.date.size === 0 || filters.date.has(row.date || "");
       const matchPlatform = filters.platform.size === 0 || filters.platform.has(row.platform || "");
       const matchStyle = filters.style.size === 0 || filters.style.has(row.style || "");
       const matchColor = filters.color.size === 0 || filters.color.has(row.color || "");
-      return matchDate && matchPlatform && matchStyle && matchColor;
+      return matchPlatform && matchStyle && matchColor;
     });
   }, [styleSummaryRows, filters]);
 
   if (styleSummaryRows.length === 0) {
     return (
-      <p className="px-4 py-12 text-center text-slate-500">
+      <p className="px-4 py-12 text-center text-slate-800 font-medium">
         No order lines for this report.
       </p>
     );
   }
 
+  // Build rows list with style-subtotal rows inserted
+  const rowsWithSubtotals = (() => {
+    const result = [];
+    let i = 0;
+    
+    const grandTotalSizes = {};
+    let grandTotal = 0;
+
+    while (i < filteredRows.length) {
+      const currentStyle = filteredRows[i].style;
+      const groupStart = i;
+      const groupRows = [];
+
+      while (i < filteredRows.length && filteredRows[i].style === currentStyle) {
+        groupRows.push({ ...filteredRows[i], _idx: i });
+        i++;
+      }
+
+      // Push all colour rows for this style
+      for (const row of groupRows) {
+        result.push({ type: "row", row });
+      }
+
+      const subtotalSizes = {};
+      let subtotalTotal = 0;
+      for (const r of groupRows) {
+        for (const sz of sizeColumns) {
+          subtotalSizes[sz] = (subtotalSizes[sz] || 0) + (r.sizes[sz] || 0);
+          grandTotalSizes[sz] = (grandTotalSizes[sz] || 0) + (r.sizes[sz] || 0);
+        }
+        subtotalTotal += r.total;
+        grandTotal += r.total;
+      }
+
+      // Push subtotal row if more than 1 colour in this style
+      if (groupRows.length > 1) {
+        result.push({
+          type: "subtotal",
+          style: currentStyle,
+          colourCount: groupRows.length,
+          subtotalSizes,
+          subtotalTotal,
+          key: `subtotal-${currentStyle}-${groupStart}`,
+        });
+      }
+    }
+    
+    if (filteredRows.length > 0) {
+      result.push({
+        type: "grand_total",
+        grandTotalSizes,
+        grandTotal,
+        key: "grand-total",
+      });
+    }
+
+    return result;
+  })();
+
   return (
-    <div className="overflow-auto max-h-[min(70vh,640px)]">
-      <table className="w-full text-sm text-left min-w-[760px]">
-        <thead className="sticky top-0 bg-slate-100/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200 shadow-sm">
+    <div data-lenis-prevent tabIndex={0} aria-label="Scrollable order details" className="report-table-scroll overflow-auto max-h-[min(70vh,640px)]">
+      <table className="glass-table report-detail-table">
+        <colgroup>
+          {!hidePlatformColumn && <col />}
+          <col style={{ width: "30%" }} />
+          <col style={{ width: "28%" }} />
+          {sizeColumns.map(size => <col key={size} />)}
+          <col style={{ width: "112px" }} />
+        </colgroup>
+        <thead className="sticky top-0 glass/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200 shadow-sm">
           <tr>
-            <th className="px-4 py-3.5 align-middle">
-              <ColumnFilter 
-                title="Date" 
-                columnKey="date" 
-                options={uniqueValues.date} 
-                activeFilters={filters.date} 
-                onFilterChange={handleFilterChange} 
-              />
-            </th>
             {!hidePlatformColumn && (
-              <th className="px-4 py-3.5 align-middle">
+              <th>
                 <ColumnFilter 
                   title="Platform" 
                   columnKey="platform" 
@@ -248,7 +302,7 @@ function ReportDetailTable({ rows, hidePlatformColumn }) {
                 />
               </th>
             )}
-            <th className="px-4 py-3.5 align-middle">
+            <th>
               <ColumnFilter 
                 title="Style" 
                 columnKey="style" 
@@ -257,7 +311,7 @@ function ReportDetailTable({ rows, hidePlatformColumn }) {
                 onFilterChange={handleFilterChange} 
               />
             </th>
-            <th className="px-4 py-3.5 align-middle">
+            <th>
               <ColumnFilter 
                 title="Color" 
                 columnKey="color" 
@@ -271,7 +325,7 @@ function ReportDetailTable({ rows, hidePlatformColumn }) {
                 {size}
               </th>
             ))}
-            <th className="px-4 py-3.5 text-right align-middle">
+            <th>
               Total
             </th>
           </tr>
@@ -279,67 +333,121 @@ function ReportDetailTable({ rows, hidePlatformColumn }) {
         <tbody className="divide-y divide-slate-100">
           {filteredRows.length === 0 ? (
             <tr>
-              <td colSpan={100} className="px-4 py-8 text-center text-slate-500 text-sm">
+              <td colSpan={100} className="px-4 py-8 text-center text-slate-800 font-medium text-sm">
                 No matching rows found.
               </td>
             </tr>
-          ) : (
-            filteredRows.map((row, index) => (
+          ) : rowsWithSubtotals.map((item) => {
+            if (item.type === "grand_total") {
+              return (
+                <tr
+                  key={item.key}
+                  className="report-grand-total border-t border-slate-800 sticky bottom-0 z-10"
+                >
+                  {!hidePlatformColumn && <td />}
+                  <td colSpan={2} className="px-4 py-3 text-xs font-black uppercase tracking-widest text-right text-slate-200">
+                    Grand Total
+                  </td>
+                  {sizeColumns.map((size) => (
+                    <td
+                      key={size}
+                      className="px-4 py-3 text-right text-sm font-black tabular-nums"
+                    >
+                      {item.grandTotalSizes[size] ? item.grandTotalSizes[size] : "-"}
+                    </td>
+                  ))}
+                  <td>
+                    <span className="report-total-value">{item.grandTotal}</span>
+                  </td>
+                </tr>
+              );
+            }
+
+            if (item.type === "subtotal") {
+              return (
+                <tr
+                  key={item.key}
+                  className="report-subtotal border-t border-slate-200"
+                >
+                  {!hidePlatformColumn && <td />}
+                  <td>
+                    {item.style} — Subtotal
+                  </td>
+                  <td>
+                    {item.colourCount} colours
+                  </td>
+                  {sizeColumns.map((size) => (
+                    <td
+                      key={size}
+                      className="px-4 py-2 text-right text-[11px] font-black text-slate-800 tabular-nums"
+                    >
+                      {item.subtotalSizes[size] ? item.subtotalSizes[size] : "-"}
+                    </td>
+                  ))}
+                  <td>
+                    <span className="report-total-value">{item.subtotalTotal}</span>
+                  </td>
+                </tr>
+              );
+            }
+
+            const row = item.row;
+            return (
               <tr
-                key={`${row.date}-${row.platform}-${row.style}-${row.color}-${index}`}
-                className="hover:bg-slate-50/80 transition"
+                key={`${row.date}-${row.platform}-${row.style}-${row.color}-${row._idx}`}
+                className="report-data-row hover:glass/80 transition"
               >
-                <td className="px-4 py-2.5 whitespace-nowrap text-slate-600 font-medium">{row.date}</td>
-                {!hidePlatformColumn && <td className="px-4 py-2.5 font-bold text-slate-900">{row.platform}</td>}
+                {!hidePlatformColumn && (
+                  <td>{row.platform}</td>
+                )}
                 <td
-                  className="px-4 py-2.5 max-w-[200px] truncate font-semibold text-slate-800"
                   title={row.style}
                 >
                   {row.style}
                 </td>
                 <td
-                  className="px-4 py-2.5 max-w-[160px] truncate text-slate-600"
                   title={row.color}
                 >
-                  {row.color}
+                  <span className="report-color-label">{row.color}</span>
                 </td>
                 {sizeColumns.map((size) => (
                   <td
                     key={size}
-                    className="px-4 py-2.5 text-right tabular-nums text-slate-600"
+                    className="px-4 py-2.5 text-right tabular-nums text-slate-800 font-medium"
                   >
-                    {row.sizes[size] ? row.sizes[size] : "-"}
+                    {row.sizes[size] ? row.sizes[size] : <span className="report-empty-value">—</span>}
                   </td>
                 ))}
-                <td className="px-4 py-2.5 text-right font-black text-slate-900 tabular-nums">
-                  {row.total}
+                <td>
+                  <span className="report-total-value">{row.total}</span>
                 </td>
               </tr>
-            ))
-          )}
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
+
 function MultiQtyOrdersModal({ rows, reportDate, onClose }) {
   if (!rows) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 glass/50"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-5xl rounded-3xl border border-white/90 bg-white/95 shadow-2xl overflow-hidden backdrop-blur-xl"
+        className="w-full max-w-5xl rounded-3xl border border-slate-200 glass shadow-xl overflow-hidden rounded-xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="multi-qty-title"
       >
-        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200/80 bg-amber-50/70">
+        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200/80 glass">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-amber-800">
               Daily final order report
@@ -347,14 +455,14 @@ function MultiQtyOrdersModal({ rows, reportDate, onClose }) {
             <h2 id="multi-qty-title" className="text-xl font-black text-slate-900 mt-1">
               Orders with quantity greater than 1
             </h2>
-            <p className="text-xs text-slate-600 mt-1">
+            <p className="text-xs text-slate-800 font-medium mt-1">
               {reportDate} · {rows.length} order line{rows.length === 1 ? "" : "s"}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition shadow-xs"
+            className="p-2 rounded-xl glass border border-slate-200 text-slate-800 font-medium hover:glass transition shadow-xs"
             aria-label="Close"
           >
             <X size={16} />
@@ -362,25 +470,25 @@ function MultiQtyOrdersModal({ rows, reportDate, onClose }) {
         </div>
 
         <div className="overflow-auto max-h-[min(70vh,640px)]">
-          <table className="w-full text-sm text-left min-w-[760px]">
-            <thead className="sticky top-0 bg-slate-100/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200">
+          <table className="glass-table">
+            <thead className="sticky top-0 glass/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3">Platform</th>
-                <th className="px-4 py-3">Order ID</th>
-                <th className="px-4 py-3">SKU</th>
-                <th className="px-4 py-3 text-right">Qty</th>
+                <th>Platform</th>
+                <th>Order ID</th>
+                <th>SKU</th>
+                <th>Qty</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((row, index) => (
                 <tr
                   key={`${row.platform}-${row.order_id}-${row.sku}-${index}`}
-                  className="hover:bg-slate-50/80 transition"
+                  className="hover:glass/80 transition"
                 >
-                  <td className="px-4 py-2.5 font-bold text-slate-900">{row.platform || "-"}</td>
-                  <td className="px-4 py-2.5 whitespace-nowrap font-mono text-xs text-slate-700">{row.order_id || "-"}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-slate-800">{row.sku || "-"}</td>
-                  <td className="px-4 py-2.5 text-right font-black text-amber-700 tabular-nums">{row.qty || 0}</td>
+                  <td>{row.platform || "-"}</td>
+                  <td>{row.order_id || "-"}</td>
+                  <td>{row.sku || "-"}</td>
+                  <td>{row.qty || 0}</td>
                 </tr>
               ))}
             </tbody>
@@ -403,17 +511,17 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 glass/50"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-5xl rounded-[24px] border border-slate-200/60 bg-white shadow-2xl overflow-hidden"
+        className="w-full max-w-5xl rounded-xl border border-slate-200/60 glass shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 glass/50">
           <div className="flex items-center gap-4">
             <div className="bg-blue-100/60 p-2.5 rounded-xl text-blue-600">
               <Package size={20} strokeWidth={2.5} />
@@ -422,7 +530,7 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
               <h2 id="flipkart-zone-title" className="text-lg font-black text-slate-900 leading-tight tracking-tight">
                 Zone Summary
               </h2>
-              <p className="text-xs font-bold text-slate-500 mt-0.5">
+              <p className="text-xs font-bold text-slate-800 font-medium mt-0.5">
                 {formatReportDate(reportDate)} &bull; {summary.total || 0} Label{summary.total === 1 ? "" : "s"}
               </p>
             </div>
@@ -430,7 +538,7 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors"
+            className="p-2 rounded-full text-slate-800 font-medium hover:glass hover:text-slate-700 transition-colors"
             aria-label="Close"
           >
             <X size={20} strokeWidth={2.5} />
@@ -444,7 +552,7 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
               <div key={platform} className="flex flex-col gap-3">
                 <div className="flex items-center gap-3 px-1">
                   <h3 className="font-black text-slate-800 text-sm tracking-tight">{platform}</h3>
-                  <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[11px] font-bold tabular-nums">
+                  <span className="glass text-slate-800 font-medium px-2 py-0.5 rounded-md text-[11px] font-bold tabular-nums">
                     {platformTotal}
                   </span>
                 </div>
@@ -452,9 +560,9 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
                   {items.map((item) => (
                     <div
                       key={item.zone}
-                      className="group bg-white px-3 py-2 rounded-[14px] border border-slate-200 shadow-sm flex items-center gap-3 hover:border-blue-300 hover:shadow-md transition-all cursor-default"
+                      className="group glass px-3 py-2 rounded-[14px] border border-slate-200 shadow-sm flex items-center gap-3 hover:border-blue-300 hover:shadow-md transition-all cursor-default"
                     >
-                      <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">
+                      <span className="text-[11px] text-slate-800 font-medium font-bold uppercase tracking-wide">
                         {item.zone}
                       </span>
                       <span className="text-base font-black text-[#0F2137] tabular-nums">
@@ -469,29 +577,29 @@ function ZoneSummaryPanel({ show, summary, reportDate, onClose, onViewBatch, onD
         </div>
 
         {(summary.batches ?? []).length > 0 && (
-          <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-5">
-            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3.5 px-1">
+          <div className="border-t border-slate-100 glass/50 px-6 py-5">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-800 font-medium mb-3.5 px-1">
               Processed Batches
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
               {summary.batches.map((batch, index) => (
                 <div
                   key={batch.id}
-                  className="group flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-blue-200 hover:shadow-md transition-all overflow-hidden"
+                  className="group flex flex-col glass-card shadow-sm hover:border-blue-200 hover:shadow-md transition-all overflow-hidden"
                 >
                   <div className="px-3.5 py-3 flex justify-between items-center border-b border-slate-50">
-                    <span className="text-slate-500 font-bold text-[10px] uppercase tracking-wider truncate pr-2">
+                    <span className="text-slate-800 font-medium font-bold text-[10px] uppercase tracking-wider truncate pr-2">
                       {batch.platform || "Flipkart"} #{index + 1}
                     </span>
                     <span className="font-black text-[#0F2137] text-sm tabular-nums shrink-0">
                       {batch.label_count}
                     </span>
                   </div>
-                  <div className="flex bg-slate-50/50 divide-x divide-slate-100">
+                  <div className="flex glass/50 divide-x divide-slate-100">
                     <button
                       type="button"
                       onClick={() => onDeleteBatch && onDeleteBatch(batch)}
-                      className="flex-1 py-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex justify-center"
+                      className="flex-1 py-2 text-slate-800 font-medium hover:text-rose-600 hover:bg-rose-50 transition-colors flex justify-center"
                       title="Delete Batch"
                     >
                       <Trash2 size={16} strokeWidth={2.5} />
@@ -513,33 +621,33 @@ function FlipkartZoneBatchModal({ batch, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 glass/50"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-xl rounded-3xl border border-white/90 bg-white/95 shadow-2xl overflow-hidden backdrop-blur-xl"
+        className="w-full max-w-xl rounded-3xl border border-slate-200 glass shadow-xl overflow-hidden rounded-xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="flipkart-zone-batch-title"
       >
-        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200/80 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-200/80 glass">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-800 font-medium">
               Processed label batch
             </p>
             <h2 id="flipkart-zone-batch-title" className="text-xl font-black text-slate-900 mt-1">
               Zone report
             </h2>
-            <p className="text-xs text-slate-600 mt-1">
+            <p className="text-xs text-slate-800 font-medium mt-1">
               {batch.date} - {batch.label_count || batch.total || 0} labels
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition shadow-xs"
+            className="p-2 rounded-xl glass border border-slate-200 text-slate-800 font-medium hover:glass transition shadow-xs"
             aria-label="Close"
           >
             <X size={16} />
@@ -547,30 +655,30 @@ function FlipkartZoneBatchModal({ batch, onClose }) {
         </div>
 
         <div className="overflow-auto max-h-[min(70vh,520px)]">
-          <table className="w-full text-sm text-left">
-            <thead className="sticky top-0 bg-slate-100/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200">
+          <table className="glass-table">
+            <thead className="sticky top-0 glass/95 backdrop-blur-md text-slate-700 text-xs font-bold uppercase tracking-wider z-10 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3">Zone</th>
-                <th className="px-4 py-3 text-right">Labels</th>
+                <th>Zone</th>
+                <th>Labels</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(batch.items ?? []).map((item) => (
                 <tr
                   key={item.zone}
-                  className="hover:bg-slate-50/80 transition"
+                  className="hover:glass/80 transition"
                 >
-                  <td className="px-4 py-2.5 font-bold text-slate-900">{item.zone}</td>
-                  <td className="px-4 py-2.5 text-right font-black tabular-nums text-slate-800">
+                  <td>{item.zone}</td>
+                  <td>
                     {item.label_count}
                   </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-slate-200 bg-slate-50/90 font-bold">
-                <td className="px-4 py-3 text-slate-900">Total Labels</td>
-                <td className="px-4 py-3 text-right tabular-nums text-[#0F2137] font-black">
+              <tr>
+                <td>Total Labels</td>
+                <td>
                   {batch.total || batch.label_count || 0}
                 </td>
               </tr>
@@ -829,21 +937,23 @@ export default function DailyReportSection() {
   };
 
   return (
-    <div className="glass-panel rounded-3xl p-6 shadow-sm space-y-6">
+    <div className="daily-final-orders">
       {/* Header & Date Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/70 pb-5">
-        <div>
+      <div className="daily-final-orders-header">
+        <div className="daily-final-orders-heading">
+          <span className="daily-final-orders-icon"><ListOrdered size={21} aria-hidden="true" /></span>
+          <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <ListOrdered className="text-[#0F2137]" size={22} />
-            Daily Final Order Details
+            Order breakdown
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Browse saved daily final order reports by date. Open a platform card to view style, color, and size details.
+          <p className="mt-1 text-xs text-slate-800 font-medium">
+            Style, color, and size quantities for the selected date.
           </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white/80 px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs">
+        <div className="daily-final-orders-date-controls">
+          <label className="daily-final-orders-date">
             <Calendar size={15} className="text-[#0F2137]" />
             <span>Date:</span>
             <input
@@ -863,7 +973,7 @@ export default function DailyReportSection() {
               reportCards.length === 0
             }
             title="Delete reports for this date"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-40 transition shadow-xs"
+            className="daily-final-orders-delete-date inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-40 transition shadow-xs"
           >
             <Trash2 size={14} />
             Delete Date
@@ -873,31 +983,32 @@ export default function DailyReportSection() {
 
       {/* Cards Grid */}
       {dailyReportLoading ? (
-        <div className="rounded-2xl border border-slate-200/80 bg-white/60 backdrop-blur-md px-6 py-14 text-center text-slate-500 text-sm font-medium">
+        <div className="rounded-xl border border-slate-200 glass px-6 py-14 text-center text-slate-800 font-medium text-sm font-medium">
           Loading report dispatches for {dailyReportDate}...
         </div>
       ) : reportCards.length === 0 && multiQtyOrders.length === 0 && !hasFlipkartZoneSummary ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-6 py-14 text-center text-slate-500">
-          <Package className="mx-auto h-12 w-12 text-slate-300 mb-2" />
+        <div className="rounded-xl border border-dashed border-slate-300 glass px-6 py-14 text-center text-slate-800 font-medium">
+          <Package className="mx-auto h-12 w-12 text-slate-800 font-medium mb-2" />
           <p className="text-sm font-bold text-slate-700">No daily reports for {dailyReportDate}</p>
-          <p className="text-xs text-slate-400 mt-1">Upload daily order files above to generate reports for this date.</p>
+          <p className="text-xs text-slate-800 font-medium mt-1">Upload daily order files above to generate reports for this date.</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="daily-final-orders-body">
           {/* Main Table View */}
-          <div className="bg-white/70 backdrop-blur-md rounded-2xl shadow-xs border border-slate-200/80 overflow-hidden">
+          <div className="order-preview daily-final-orders-matrix">
             {/* Toolbar Tabs */}
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200/70 bg-slate-50/50">
-              <div className="flex flex-wrap gap-2">
+            <div className="daily-final-orders-toolbar">
+              <div className="daily-final-orders-platforms" role="group" aria-label="Filter orders by platform">
                 {["All", ...reportCards.map(c => c.name)].map(platform => (
                   <button
                     key={platform}
                     type="button"
                     onClick={() => setSelectedPlatformFilter(platform)}
+                    aria-pressed={selectedPlatformFilter === platform}
                     className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-2 ${
                       selectedPlatformFilter === platform
                         ? "bg-[#0F2137] text-white"
-                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                        : "glass text-slate-800 font-medium border border-slate-200 hover:glass"
                     }`}
                   >
                     <span>{platform === "All" ? "All Platforms" : platform}</span>
@@ -905,7 +1016,7 @@ export default function DailyReportSection() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="daily-final-orders-actions">
                 <button
                   type="button"
                   onClick={() => printDailyReportRows(displayedRows, {
@@ -915,7 +1026,7 @@ export default function DailyReportSection() {
                   })}
                   disabled={displayedRows.length === 0}
                   title="Print details"
-                  className="p-2 rounded-xl bg-white border border-slate-200 text-[#0F2137] hover:bg-slate-50 disabled:opacity-40 transition shadow-xs"
+                  className="p-2 rounded-xl glass border border-slate-200 text-[#0F2137] hover:glass disabled:opacity-40 transition shadow-xs"
                 >
                   <Printer size={16} />
                 </button>
@@ -936,7 +1047,7 @@ export default function DailyReportSection() {
                   })}
                   disabled={actionLoading}
                   title={`Delete ${selectedPlatformFilter} report`}
-                  className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-white p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40 shadow-xs"
+                  className="inline-flex items-center justify-center rounded-xl border border-rose-200 glass p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-40 shadow-xs"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -946,29 +1057,29 @@ export default function DailyReportSection() {
             {/* Table */}
             <ReportDetailTable 
               rows={displayedRows} 
-              hidePlatformColumn={selectedPlatformFilter !== "All"} 
+              hidePlatformColumn={true} 
             />
           </div>
 
           {/* Small Cards Grid for Multi Qty & Zone Summary */}
           {(multiQtyOrders.length > 0 || hasFlipkartZoneSummary) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="daily-final-orders-extras grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {multiQtyOrders.length > 0 && (
-                <article className="group rounded-xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-amber-300 hover:shadow-md hover:bg-white/95">
+                <article className="group rounded-lg border border-slate-200 glass shadow-sm overflow-hidden transition hover:glass">
                   <button
                     type="button"
                     onClick={() => setShowMultiQtyOrders(true)}
                     className="w-full text-left p-4 flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 shadow-sm text-white">
+                      <div className="w-10 h-10 rounded-md glass flex items-center justify-center shrink-0 text-slate-700">
                         <ListOrdered size={18} />
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-900">
                           Multiple Quantity
                         </h3>
-                        <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        <p className="text-xs text-slate-800 font-medium font-medium mt-0.5">
                           {multiQtyOrders.length} orders · {multiQtyTotal} pcs
                         </p>
                       </div>
@@ -978,21 +1089,21 @@ export default function DailyReportSection() {
               )}
 
               {hasFlipkartZoneSummary && (
-                <article className="group rounded-xl border border-slate-200/80 bg-white/70 backdrop-blur-md shadow-xs overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-md hover:bg-white/95">
+                <article className="group rounded-lg border border-slate-200 glass shadow-sm overflow-hidden transition hover:glass">
                   <button
                     type="button"
                     onClick={() => setShowFlipkartZoneSummary(true)}
                     className="w-full text-left p-4 flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shrink-0 shadow-sm text-white">
+                      <div className="w-10 h-10 rounded-md glass flex items-center justify-center shrink-0 text-slate-700">
                         <Package size={18} />
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-900">
-                          Flipkart Zones
+                          Zone Summary
                         </h3>
-                        <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        <p className="text-xs text-slate-800 font-medium font-medium mt-0.5">
                           {flipkartZoneSummary.items.length} zones · {flipkartZoneSummary.total || 0} labels
                         </p>
                       </div>
@@ -1008,12 +1119,12 @@ export default function DailyReportSection() {
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 glass/50"
           onClick={() => closeDeleteModal()}
           role="presentation"
         >
           <div
-            className="w-full max-w-md rounded-3xl border border-white/90 bg-white/95 shadow-2xl overflow-hidden backdrop-blur-xl"
+            className="w-full max-w-md rounded-3xl border border-slate-200 glass shadow-xl overflow-hidden rounded-xl"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1026,7 +1137,7 @@ export default function DailyReportSection() {
                   Delete daily report
                 </h2>
               </div>
-              <p className="mt-2 text-xs text-slate-600">
+              <p className="mt-2 text-xs text-slate-800 font-medium">
                 This will delete {deleteTarget.label} report
                 {deleteTarget.platform === "All" ? "s" : ""} for{" "}
                 <span className="font-bold text-slate-900">{dailyReportDate}</span>.
@@ -1048,7 +1159,7 @@ export default function DailyReportSection() {
                   onChange={(event) => setDeletePassword(event.target.value)}
                   placeholder="Enter admin password"
                   autoFocus
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F2137] shadow-xs"
+                  className="mt-2 w-full rounded-xl border border-slate-200 glass px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F2137] shadow-xs"
                 />
               </label>
 
@@ -1057,7 +1168,7 @@ export default function DailyReportSection() {
                   type="button"
                   onClick={() => closeDeleteModal()}
                   disabled={actionLoading}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 shadow-xs"
+                  className="rounded-xl border border-slate-200 glass px-4 py-2 text-xs font-bold text-slate-800 font-medium hover:glass disabled:opacity-50 shadow-xs"
                 >
                   Cancel
                 </button>

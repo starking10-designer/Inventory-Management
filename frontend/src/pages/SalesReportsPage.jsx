@@ -1,3 +1,4 @@
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
@@ -130,12 +131,12 @@ function DateRangeModal({
   const isDownload = action === "download";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 glass/50 backdrop-blur-sm"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-white/80 bg-white p-5 shadow-2xl"
+        className="w-full max-w-md rounded-2xl border border-white/80 glass p-5 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -149,7 +150,7 @@ function DateRangeModal({
             >
               {isDownload ? "Download sales report" : "Filter sales reports"}
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-slate-800 font-medium">
               Select an inclusive date range.
             </p>
           </div>
@@ -157,7 +158,7 @@ function DateRangeModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-lg border border-slate-200 p-2 text-slate-800 font-medium hover:glass disabled:opacity-50"
             aria-label="Close"
           >
             <X size={18} />
@@ -191,7 +192,7 @@ function DateRangeModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-800 font-medium hover:glass disabled:opacity-50"
           >
             Cancel
           </button>
@@ -215,12 +216,12 @@ function SalesDetailModal({ report, onClose, onDownload, downloading }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 glass/50 backdrop-blur-sm"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-3xl rounded-2xl border border-white/80 bg-white shadow-2xl overflow-hidden"
+        className="w-full max-w-3xl rounded-2xl border border-white/80 glass shadow-2xl overflow-hidden"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -228,7 +229,7 @@ function SalesDetailModal({ report, onClose, onDownload, downloading }) {
       >
         <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-indigo-50/60">
           <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">
+            <p className="text-xs uppercase tracking-wide text-slate-800 font-medium">
               Daily sales report
             </p>
             <h2
@@ -237,7 +238,7 @@ function SalesDetailModal({ report, onClose, onDownload, downloading }) {
             >
               {report.report_date}
             </h2>
-            <p className="text-sm text-slate-600 mt-1">
+            <p className="text-sm text-slate-800 font-medium mt-1">
               {report.platform_count} platform
               {report.platform_count === 1 ? "" : "s"} ·{" "}
               {report.total_piece_qty} pieces ·{" "}
@@ -257,7 +258,7 @@ function SalesDetailModal({ report, onClose, onDownload, downloading }) {
             <button
               type="button"
               onClick={onClose}
-              className="p-2.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition"
+              className="p-2.5 rounded-xl glass border border-slate-200 text-slate-800 font-medium hover:glass transition"
               aria-label="Close"
             >
               <X size={18} />
@@ -266,33 +267,33 @@ function SalesDetailModal({ report, onClose, onDownload, downloading }) {
         </div>
 
         <div className="overflow-auto max-h-[min(70vh,520px)]">
-          <table className="w-full text-sm text-left min-w-[560px]">
-            <thead className="sticky top-0 bg-slate-100/95 text-slate-700 text-xs uppercase tracking-wide">
+          <table className="glass-table">
+            <thead className="sticky top-0 glass/95 text-slate-700 text-xs uppercase tracking-wide">
               <tr>
-                <th className="px-4 py-3">Platform</th>
-                <th className="px-4 py-3 text-right">Orders</th>
-                <th className="px-4 py-3 text-right">Pieces</th>
-                <th className="px-4 py-3 text-right">Invoice</th>
-                <th className="px-4 py-3 text-right">Excel</th>
+                <th>Platform</th>
+                <th>Orders</th>
+                <th>Pieces</th>
+                <th>Invoice</th>
+                <th>Excel</th>
               </tr>
             </thead>
             <tbody>
               {report.platforms.map((platform) => (
                 <tr
                   key={platform.platform}
-                  className="border-t border-slate-100 hover:bg-slate-50/80"
+                  className="border-t border-slate-100 hover:glass/80"
                 >
-                  <td className="px-4 py-3 font-medium">{platform.platform}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td>{platform.platform}</td>
+                  <td>
                     {platform.total_orders}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td>
                     {platform.total_piece_qty}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td>
                     {formatMoney(platform.total_invoice_amount)}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td>
                     <button
                       type="button"
                       onClick={() =>
@@ -307,18 +308,18 @@ function SalesDetailModal({ report, onClose, onDownload, downloading }) {
                   </td>
                 </tr>
               ))}
-              <tr className="border-t border-violet-200 bg-violet-50/80 font-semibold">
-                <td className="px-4 py-3">Total</td>
-                <td className="px-4 py-3 text-right tabular-nums">
+              <tr>
+                <td>Total</td>
+                <td>
                   {report.total_orders}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">
+                <td>
                   {report.total_piece_qty}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">
+                <td>
                   {formatMoney(report.total_invoice_amount)}
                 </td>
-                <td className="px-4 py-3" />
+                <td />
               </tr>
             </tbody>
           </table>
@@ -474,7 +475,7 @@ export default function SalesReportsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-sky-100 text-slate-800">
-      <div className="border-b border-slate-200/70 bg-white/60 backdrop-blur-xl">
+      <WorkspaceTopBar>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
           <Link
             to="/"
@@ -483,16 +484,16 @@ export default function SalesReportsPage() {
             <ChevronLeft size={18} />
             Home
           </Link>
-          <span className="text-slate-300">|</span>
+          <span className="text-slate-800 font-medium">|</span>
           <h1 className="text-lg font-bold flex items-center gap-2">
             <TrendingUp className="text-violet-600" size={22} />
             Daily sales reports
           </h1>
         </div>
-      </div>
+      </WorkspaceTopBar>
 
       <div className="max-w-7xl mx-auto p-6">
-        <p className="text-slate-500 text-sm mb-4">
+        <p className="text-slate-800 font-medium text-sm mb-4">
           Browse saved daily sales reports by date. Open a report to see
           platform-wise totals, or download as Excel.
         </p>
@@ -502,7 +503,7 @@ export default function SalesReportsPage() {
             type="button"
             onClick={() => openDateRange("filter")}
             disabled={loading || groupedReports.length === 0}
-            className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-700 shadow-sm hover:bg-violet-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-violet-200 glass px-4 py-2.5 text-sm font-semibold text-violet-700 shadow-sm hover:bg-violet-50 disabled:opacity-50"
           >
             <ListFilter size={17} />
             Filter
@@ -536,11 +537,11 @@ export default function SalesReportsPage() {
         </div>
 
         {loading ? (
-          <div className="rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm px-6 py-16 text-center text-slate-500">
+          <div className="rounded-2xl border border-white/80 glass/55 backdrop-blur-xl shadow-sm px-6 py-16 text-center text-slate-800 font-medium">
             Loading sales reports…
           </div>
         ) : visibleReports.length === 0 ? (
-          <div className="rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm px-6 py-16 text-center text-slate-500">
+          <div className="rounded-2xl border border-white/80 glass/55 backdrop-blur-xl shadow-sm px-6 py-16 text-center text-slate-800 font-medium">
             {groupedReports.length === 0
               ? "No sales reports saved yet. Generate a final report first to record platform sales."
               : "No sales reports found in the selected date range."}
@@ -550,7 +551,7 @@ export default function SalesReportsPage() {
             {visibleReports.map((report) => (
               <article
                 key={report.report_date}
-                className="group rounded-2xl border border-white/80 bg-white/55 backdrop-blur-xl shadow-sm overflow-hidden transition hover:border-violet-300 hover:shadow-md"
+                className="group rounded-2xl border border-white/80 glass/55 backdrop-blur-xl shadow-sm overflow-hidden transition hover:border-violet-300 hover:shadow-md"
               >
                 <button
                   type="button"
@@ -570,11 +571,11 @@ export default function SalesReportsPage() {
                   <h2 className="text-lg font-bold text-slate-900 mt-4">
                     {report.report_date}
                   </h2>
-                  <p className="text-sm text-slate-500 mt-1">
+                  <p className="text-sm text-slate-800 font-medium mt-1">
                     Combined sales for all platforms on this date
                   </p>
 
-                  <div className="mt-4 rounded-xl border border-slate-200/80 bg-white/70 overflow-hidden">
+                  <div className="mt-4 rounded-xl border border-slate-200/80 glass/70 overflow-hidden">
                     {report.platforms.map((platform) => (
                       <div
                         key={platform.platform}
@@ -583,16 +584,16 @@ export default function SalesReportsPage() {
                         <span
                           className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                             PLATFORM_BADGES[platform.platform] ||
-                            "bg-slate-100 text-slate-700"
+                            "glass text-slate-700"
                           }`}
                         >
                           {platform.platform}
                         </span>
-                        <div className="text-right text-xs text-slate-600 tabular-nums">
+                        <div className="text-right text-xs text-slate-800 font-medium tabular-nums">
                           <span className="font-semibold text-slate-800">
                             {platform.total_piece_qty} pcs
                           </span>
-                          <span className="mx-1.5 text-slate-300">·</span>
+                          <span className="mx-1.5 text-slate-800 font-medium">·</span>
                           <span>
                             {formatMoney(platform.total_invoice_amount)}
                           </span>
@@ -602,16 +603,16 @@ export default function SalesReportsPage() {
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl glass px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-800 font-medium">
                         Total orders
                       </p>
                       <p className="text-lg font-bold text-slate-900 tabular-nums">
                         {report.total_orders}
                       </p>
                     </div>
-                    <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    <div className="rounded-xl glass px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-800 font-medium">
                         Total pieces
                       </p>
                       <p className="text-lg font-bold text-slate-900 tabular-nums">
@@ -633,7 +634,7 @@ export default function SalesReportsPage() {
                   </span>
                 </button>
 
-                <div className="border-t border-slate-200/80 px-5 py-3 bg-white/60">
+                <div className="border-t border-slate-200/80 px-5 py-3 glass/60">
                   <button
                     type="button"
                     onClick={(event) => {
@@ -655,7 +656,7 @@ export default function SalesReportsPage() {
         )}
 
         {!loading && visibleReports.length > 0 && (
-          <p className="mt-4 text-xs text-slate-500">
+          <p className="mt-4 text-xs text-slate-800 font-medium">
             {visibleReports.length} dated sales report
             {visibleReports.length === 1 ? "" : "s"} available
           </p>

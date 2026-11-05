@@ -1,0 +1,25 @@
+.stock-analysis-sections { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.stock-analysis-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.stock-analysis-kpis .stock-analysis-date-value { font-size: 26px; }
+.stock-analysis-styles { min-height: 380px; padding-top: 18px; }
+.stock-analysis-styles h3 { font-size: 14px; font-weight: 600; color: #4a6481; }
+.stock-analysis-styles h3 + p { font-size: 11px; color: #7a8da4; margin-top: 4px; }
+.stock-style-chart { width: 100%; overflow-x: auto; }
+.stock-style-chart-canvas { height: 310px; }
+.stock-history-controls { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.stock-analysis-export { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 8px 13px; border: 1px solid #bdddcf; border-radius: 9px; background: #ebf7f1c4; color: #19714f; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.stock-analysis-export:disabled { opacity: .4; cursor: not-allowed; }
+.stock-history-table.glass-table { min-width: 620px; }
+.stock-history-table.glass-table th:last-child, .stock-history-table.glass-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.stock-history-table.glass-table tbody td:last-child { color: #294967; font-weight: 600; }
+@media (max-width: 600px) {
+  .stock-analysis-sections { gap: 18px; }
+  .stock-analysis-kpis { gap: 10px; }
+  .stock-analysis-kpis .dashboard-card-top { font-size: 10px; }
+  .stock-analysis-kpis .dashboard-icon { width: 28px; height: 28px; border-radius: 9px; }
+  .stock-analysis-kpis .dashboard-icon svg { width: 17px; height: 17px; }
+  .stock-analysis-kpis .stock-analysis-date-value { font-size: 20px; }
+  .stock-analysis-kpis .dashboard-stat p { font-size: 10px; }
+  .stock-history-controls { width: 100%; flex-wrap: wrap; }
+  .stock-history-controls > div { flex: 1; min-width: 160px; }
+}

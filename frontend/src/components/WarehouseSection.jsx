@@ -1,3 +1,7 @@
+import "../dashboard.css";
+import "../stock-inventory.css";
+import "../return-analysis.css";
+import "../warehouse.css";
 import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import {
@@ -13,6 +17,8 @@ import {
   TrendingUp,
   BarChart3,
   Layers,
+  Check,
+  IndianRupee,
 } from "lucide-react";
 import {
   Bar,
@@ -110,18 +116,18 @@ function ChartTooltip({ active, payload, label }) {
   const item = payload[0]?.payload || {};
 
   return (
-    <div className="rounded-2xl border border-white/90 bg-white/95 p-3.5 shadow-xl backdrop-blur-xl text-xs">
+    <div className="rounded-2xl border border-white/90 glass/95 p-3.5 shadow-xl backdrop-blur-xl text-xs">
       <p className="font-bold text-slate-900 mb-1.5 border-b border-slate-100 pb-1">{label}</p>
       <div className="space-y-1">
-        <p className="text-slate-600 flex justify-between gap-4">
+        <p className="text-slate-800 font-medium flex justify-between gap-4">
           <span>Orders:</span>
           <span className="font-bold text-slate-900">{item.orders || 0}</span>
         </p>
-        <p className="text-slate-600 flex justify-between gap-4">
+        <p className="text-slate-800 font-medium flex justify-between gap-4">
           <span>Total Pieces:</span>
           <span className="font-bold text-slate-900">{item.pieces || 0}</span>
         </p>
-        <p className="text-slate-600 flex justify-between gap-4">
+        <p className="text-slate-800 font-medium flex justify-between gap-4">
           <span>Sales:</span>
           <span className="font-bold text-emerald-700">{formatMoney(item.salesAmount)}</span>
         </p>
@@ -136,46 +142,47 @@ function DetailTable({ rows }) {
 
   if (summaryRows.length === 0) {
     return (
-      <p className="px-4 py-12 text-center text-slate-500">
+      <p className="px-4 py-12 text-center text-slate-800 font-medium">
         No warehouse lines for this report.
       </p>
     );
   }
 
   return (
-    <div className="max-h-[min(70vh,640px)] overflow-auto">
-      <table className="w-full min-w-[680px] text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-md text-xs font-bold uppercase text-slate-700 border-b border-slate-200">
+    <div className="warehouse-detail-scroll" data-lenis-prevent tabIndex={0} aria-label="Scrollable warehouse batch details">
+      <table className="glass-table stock-data-table stock-matrix-table warehouse-detail-table">
+        <thead className="sticky top-0 z-10 glass/95 backdrop-blur-md text-xs font-bold uppercase text-slate-700 border-b border-slate-200">
           <tr>
-            <th className="px-4 py-3">Style</th>
-            <th className="px-4 py-3">Color</th>
+            <th>Style</th>
+            <th>Color</th>
             {sizeColumns.map((size) => (
               <th key={size} className="px-4 py-3 text-right">
                 {size}
               </th>
             ))}
-            <th className="px-4 py-3 text-right">Total</th>
+            <th>Total</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {summaryRows.map((row, index) => (
             <tr
               key={`${row.style}-${row.color}-${index}`}
-              className="hover:bg-slate-50/80 transition"
+              className="warehouse-detail-row"
             >
-              <td className="px-4 py-2.5 font-bold text-slate-900">{row.style}</td>
-              <td className="px-4 py-2.5 text-slate-600">{row.color}</td>
+              <td>{row.style}</td>
+              <td>{row.color}</td>
               {sizeColumns.map((size) => (
-                <td key={size} className="px-4 py-2.5 text-right tabular-nums text-slate-600">
+                <td key={size} className="px-4 py-2.5 text-right tabular-nums text-slate-800 font-medium">
                   {row.sizes[size] || "-"}
                 </td>
               ))}
-              <td className="px-4 py-2.5 text-right font-black text-slate-900 tabular-nums">
+              <td>
                 {row.total}
               </td>
             </tr>
           ))}
         </tbody>
+        <tfoot><tr><td colSpan={2}>Grand total</td>{sizeColumns.map(size => <td key={size}>{summaryRows.reduce((sum, row) => sum + Number(row.sizes[size] || 0), 0).toLocaleString("en-IN")}</td>)}<td>{summaryRows.reduce((sum, row) => sum + row.total, 0).toLocaleString("en-IN")}</td></tr></tfoot>
       </table>
     </div>
   );
@@ -186,20 +193,20 @@ function DetailModal({ card, onClose, onDownload, downloading }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center glass/40 p-4 backdrop-blur-md"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-5xl overflow-hidden rounded-3xl border border-white/90 bg-white/95 shadow-2xl backdrop-blur-xl"
+        className="stock-preview-modal warehouse-detail-modal"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="warehouse-detail-title"
       >
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/80 bg-gradient-to-r from-slate-50 to-[#0F2137]/5 px-6 py-5">
+        <div className="warehouse-detail-heading">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-800 font-medium">
               Flipkart Batch
             </p>
             <h2
@@ -208,7 +215,7 @@ function DetailModal({ card, onClose, onDownload, downloading }) {
             >
               {card.date}
             </h2>
-            <p className="mt-1 text-xs text-slate-600">
+            <p className="mt-1 text-xs text-slate-800 font-medium">
               {card.lineCount} style-color line{card.lineCount === 1 ? "" : "s"}{" "}
               · {card.totalPieces} pieces · {formatMoney(card.salesAmount)}
             </p>
@@ -218,7 +225,7 @@ function DetailModal({ card, onClose, onDownload, downloading }) {
               type="button"
               onClick={() => onDownload(card.date)}
               disabled={downloading || card.rows.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-2 text-xs font-bold text-white shadow-xs hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50 transition"
+              className="stock-export-button"
             >
               <Download size={14} />
               {downloading ? "Downloading..." : "Export Excel"}
@@ -226,7 +233,8 @@ function DetailModal({ card, onClose, onDownload, downloading }) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-100 shadow-xs transition"
+              aria-label="Close warehouse details"
+              className="rounded-xl border border-slate-200 glass p-2 text-slate-800 font-medium hover:glass shadow-xs transition"
             >
               <X size={16} />
             </button>
@@ -239,12 +247,29 @@ function DetailModal({ card, onClose, onDownload, downloading }) {
   );
 }
 
+function WarehouseUpload({ title, description, file, onFile, accept, busy, onGenerate, action }) {
+  return (
+    <section className={`stock-import-panel warehouse-upload-panel ${title === "Malur labels" ? "warehouse-upload-labels" : "warehouse-upload-sales"}`} aria-label={title}>
+      <div className="stock-import-heading"><span className="stock-import-icon">{title === "Malur labels" ? <Layers size={20} /> : <Upload size={20} />}</span><h2>{title}</h2><span className="stock-file-status">{file ? "File ready" : "Excel"}</span></div>
+      <p className="warehouse-upload-description">{description}</p>
+      <div className="stock-upload-field" data-ready={!!file}>
+        <label className="stock-upload-label">
+          <input type="file" accept={accept} aria-label={`Choose ${title.toLowerCase()} file`} className="stock-file-input" disabled={busy || !!file} onChange={event => { onFile(event.target.files?.[0] || null); event.target.value = ""; }} />
+          <span className="stock-file-icon">{file ? <Check size={25} /> : <FileSpreadsheet size={25} />}</span><strong title={file?.name}>{file ? file.name : "Choose spreadsheet"}</strong><span>{file ? "Ready to generate" : accept.replaceAll(".", "").toUpperCase().replaceAll(",", ", ")}</span>
+        </label>
+      </div>
+      <div className="stock-import-footer"><button type="button" onClick={() => onFile(null)} disabled={!file || busy} className="stock-clear-button"><Trash2 size={14} />Clear file</button><button type="button" onClick={onGenerate} disabled={!file || busy} className="stock-preview-button">{busy ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}{busy ? "Generating..." : action}</button></div>
+    </section>
+  );
+}
+
 export default function Section() {
   const [file, setFile] = useState(null);
   const [labelFile, setLabelFile] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [generatingLabels, setGeneratingLabels] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [downloadDate, setDownloadDate] = useState(null);
   const [selectedCard, setSelectedCard] = useState(null);
@@ -261,6 +286,7 @@ export default function Section() {
 
   const loadRows = async (query = "") => {
     setLoading(true);
+    setLoadError("");
     try {
       const response = await axios.get(`${API_BASE}/flipkart-warehouse-report`, {
         params: query ? { search: query } : {},
@@ -274,6 +300,7 @@ export default function Section() {
       });
     } catch (error) {
       console.error("Failed to load Flipkart data", error);
+      setLoadError("Unable to load warehouse reports. Please refresh to try again.");
     } finally {
       setLoading(false);
     }
@@ -474,409 +501,53 @@ export default function Section() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* KPI Stats Row (Navy Accents) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="glass-panel rounded-2xl p-5 shadow-sm glass-card-hover flex flex-col justify-between bg-gradient-to-br from-[#0F2137]/10 via-white/80 to-[#1E3A66]/5">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-[#0F2137]">Total Orders</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#0F2137]/10 text-[#0F2137]">
-              <Package size={18} />
+    <div className="warehouse-page">
+      <section className="warehouse-kpis" aria-label="Warehouse overview">
+        {[
+          { label: "Total orders", value: data.total_orders.toLocaleString("en-IN"), description: "Line orders in saved reports", icon: Package, tone: "" },
+          { label: "Total pieces", value: data.total_piece_qty.toLocaleString("en-IN"), description: "Stock units dispatched", icon: Layers, tone: "blue" },
+          { label: "Invoice amount", value: formatMoney(data.total_invoice_amount), description: "Total invoice value", icon: IndianRupee, tone: "violet" },
+          { label: "Saved reports", value: reportCards.length.toLocaleString("en-IN"), description: "Daily dispatch batches", icon: FileSpreadsheet, tone: "amber" },
+        ].map(({ label, value, description, icon: Icon, tone }) => <article className="dashboard-stat" key={label}><div className="dashboard-card-top"><span>{label}</span><span className={`dashboard-icon ${tone}`}><Icon size={21} /></span></div><strong>{loading ? "..." : value}</strong><p>{description}</p></article>)}
+      </section>
+      {loadError && <div className="warehouse-error" role="alert">{loadError}</div>}
+      <div className="warehouse-workspace">
+        <section className="return-analysis-charts warehouse-performance" aria-labelledby="warehouse-chart-title">
+          <div className="return-analysis-chart-header"><div><span className="warehouse-card-eyebrow">Dispatch insights</span><h2 id="warehouse-chart-title"><BarChart3 size={19} /> Warehouse performance</h2><p>Date-wise order volume</p></div></div>
+          <div className="warehouse-chart-controls">
+            <div className="return-analysis-chart-tabs" role="group" aria-label="Warehouse chart period">
+              {CHART_RANGE_OPTIONS.map(option => <button type="button" key={option.value} aria-pressed={chartRange === option.value} onClick={() => setChartRange(option.value)}>{option.label}</button>)}
             </div>
+            {chartRange === "custom" && <div className="warehouse-chart-dates"><label>From<input type="date" aria-label="Chart from date" value={customFromDate} max={customToDate || undefined} onChange={e => setCustomFromDate(e.target.value)} /></label><label>To<input type="date" aria-label="Chart to date" value={customToDate} min={customFromDate || undefined} onChange={e => setCustomToDate(e.target.value)} /></label></div>}
           </div>
-          <h3 className="mt-3 text-3xl font-black text-slate-900">{data.total_orders.toLocaleString()}</h3>
-          <p className="mt-0.5 text-xs text-slate-500 font-medium">line orders</p>
-        </div>
-
-        <div className="glass-panel rounded-2xl p-5 shadow-sm glass-card-hover flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Pieces</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-500/10 text-blue-700">
-              <RefreshCw size={18} />
-            </div>
+          <div className="warehouse-chart-canvas">
+            {!visibleChartRows.length ? <div className="warehouse-empty">{loading ? "Loading warehouse data..." : chartRows.length ? "No reports in the selected date range." : "Upload a sales report to see warehouse performance."}</div> : <ResponsiveContainer width="100%" height="100%"><BarChart data={visibleChartRows} margin={{ top: 20, right: 18, left: 0, bottom: 10 }} barCategoryGap="28%"><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d5dde5" /><XAxis dataKey="date" axisLine={false} tickLine={false} tickMargin={10} minTickGap={20} tick={{ fontSize: 13, fill: "#43566b" }} tickFormatter={value => value.slice(5)} /><YAxis allowDecimals={false} axisLine={false} tickLine={false} width={42} tick={{ fontSize: 13, fill: "#43566b" }} /><Tooltip content={<ChartTooltip />} cursor={{ fill: "#315f9b08" }} /><Bar dataKey="orders" name="Orders" radius={[7, 7, 0, 0]} maxBarSize={56} isAnimationActive={false}>{visibleChartRows.map(entry => <Cell key={entry.date} fill={entry.orders < 5 ? "#ce5965" : entry.orders < 20 ? "#dc9234" : "#25856a"} />)}</Bar></BarChart></ResponsiveContainer>}
           </div>
-          <h3 className="mt-3 text-3xl font-black text-slate-900">{data.total_piece_qty.toLocaleString()}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">stock units</p>
-        </div>
-
-        <div className="glass-panel rounded-2xl p-5 shadow-sm glass-card-hover flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Amount</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-700">
-              <TrendingUp size={18} />
-            </div>
-          </div>
-          <h3 className="mt-3 text-3xl font-black text-emerald-800">{formatMoney(data.total_invoice_amount)}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">Gross revenue</p>
-        </div>
-
-        <div className="glass-panel rounded-2xl p-5 shadow-sm glass-card-hover flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Saved Reports</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-[#0F2137]">
-              <FileSpreadsheet size={18} />
-            </div>
-          </div>
-          <h3 className="mt-3 text-3xl font-black text-slate-900">{reportCards.length}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">Active date batches</p>
+          <div className="warehouse-chart-legend"><span><i style={{ background: "#ce5965" }} />0-4 orders</span><span><i style={{ background: "#dc9234" }} />5-19 orders</span><span><i style={{ background: "#25856a" }} />20+ orders</span></div>
+        </section>
+        <div className="warehouse-uploads">
+          <WarehouseUpload title="Sales report" description="Flipkart warehouse daily dispatches" file={file} onFile={setFile} accept=".csv,.xlsx,.xls" busy={generating} onGenerate={generateReport} action="Generate report" />
+          <WarehouseUpload title="Malur labels" description="Create printable labels from your Excel file" file={labelFile} onFile={setLabelFile} accept=".xlsx,.xls" busy={generatingLabels} onGenerate={generateLabels} action="Generate PDF" />
         </div>
       </div>
-
-      {/* TOP CHART SECTION: Date Wise Sales Bar Chart & Total Report Summary */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,480px)]">
-        {/* Date Wise Sales Bar Chart */}
-        <div className="glass-panel rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <BarChart3 size={18} className="text-[#0F2137]" />
-                Date Wise Sales
-              </h3>
-              <p className="text-xs text-slate-500">Interactive order volume bar graph with threshold indicators.</p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-xl border border-slate-200/80 bg-white/80 p-1 shadow-xs">
-                {CHART_RANGE_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setChartRange(option.value)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${
-                      chartRange === option.value
-                        ? "bg-[#0F2137] text-white shadow-xs"
-                        : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {chartRange === "custom" && (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="date"
-                    value={customFromDate}
-                    onChange={(e) => setCustomFromDate(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-xs"
-                  />
-                  <input
-                    type="date"
-                    value={customToDate}
-                    onChange={(e) => setCustomToDate(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-xs"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {chartRows.length === 0 ? (
-            <div className="flex h-72 items-center justify-center text-xs text-slate-500">
-              No warehouse chart data available. Upload warehouse reports below.
-            </div>
-          ) : visibleChartRows.length === 0 ? (
-            <div className="flex h-72 items-center justify-center text-xs text-slate-500">
-              No reports found for the selected date range.
-            </div>
-          ) : (
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={visibleChartRows}
-                  margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                  barCategoryGap="28%"
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#64748B" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "#64748B" }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="orders" name="Orders" radius={[6, 6, 0, 0]}>
-                    {visibleChartRows.map((entry, index) => {
-                      let color = "#16a34a"; // Green (>20)
-                      if (entry.orders < 5) {
-                        color = "#dc2626"; // Red
-                      } else if (entry.orders < 20) {
-                        color = "#f59e0b"; // Orange
-                      }
-                      return <Cell key={`cell-${index}`} fill={color} />;
-                    })}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-5 text-xs font-semibold text-slate-600">
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-500"></span>
-                  <span>0–4 Orders</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-                  <span>5–20 Orders</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-green-600"></span>
-                  <span>20+ Orders</span>
-                </div>
-              </div>
-            </div>
-          )}
+      <section className="warehouse-reports" aria-labelledby="warehouse-reports-title">
+        <div className="stock-table-toolbar">
+          <div className="warehouse-reports-heading"><h2 id="warehouse-reports-title">Saved report batches</h2><p>View details or export a daily dispatch batch</p></div>
+          <form className="stock-table-controls" onSubmit={event => { event.preventDefault(); loadRows(search); }}>
+            <label className="stock-search"><Search size={16} /><input type="search" aria-label="Search warehouse reports" placeholder="Search date or SKU..." value={search} onChange={event => setSearch(event.target.value)} /></label>
+            <button type="submit" className="warehouse-search-button" disabled={loading}>Search</button>
+            <button type="button" onClick={() => loadRows(search)} disabled={loading} className="stock-refresh-button" aria-label="Refresh warehouse reports"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+          </form>
         </div>
-
-        {/* Total Report Summary Table */}
-        <div className="glass-panel rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-          <div className="mb-4 border-b border-slate-200/70 pb-4">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Layers size={18} className="text-[#0F2137]" />
-              Total Report Summary
-            </h3>
-            <p className="text-xs text-slate-500">Comprehensive batch performance totals.</p>
-          </div>
-
-          <div className="max-h-[300px] overflow-y-auto overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/70 backdrop-blur-md">
-            <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-md font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
-                <tr>
-                  <th className="px-3.5 py-2.5">Date</th>
-                  <th className="px-3.5 py-2.5 text-right">Orders</th>
-                  <th className="px-3.5 py-2.5 text-right">Pieces</th>
-                  <th className="px-3.5 py-2.5 text-right">Sales</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {reportCards.map((card) => (
-                  <tr key={card.date} className="hover:bg-slate-50 transition">
-                    <td className="px-3.5 py-2 font-medium text-slate-900">
-                      {card.date}
-                    </td>
-                    <td className="px-3.5 py-2 text-right tabular-nums text-slate-600">
-                      {card.itemCount}
-                    </td>
-                    <td className="px-3.5 py-2 text-right tabular-nums font-bold text-slate-900">
-                      {card.totalPieces}
-                    </td>
-                    <td className="px-3.5 py-2 text-right tabular-nums font-semibold text-emerald-800">
-                      {formatMoney(card.salesAmount)}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-[#0F2137]/10 font-bold border-t border-slate-300">
-                  <td className="px-3.5 py-2.5 text-[#0F2137]">Total</td>
-                  <td className="px-3.5 py-2.5 text-right tabular-nums text-slate-900">
-                    {data.total_orders}
-                  </td>
-                  <td className="px-3.5 py-2.5 text-right tabular-nums text-slate-900">
-                    {data.total_piece_qty}
-                  </td>
-                  <td className="px-3.5 py-2.5 text-right tabular-nums text-emerald-800">
-                    {formatMoney(data.total_invoice_amount)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+        <div className="warehouse-reports-scroll" data-lenis-prevent tabIndex={0} aria-label="Scrollable warehouse reports">
+          <table className="glass-table stock-data-table warehouse-reports-table">
+            <thead><tr><th>Report date</th><th>Orders</th><th>Total pieces</th><th>Sales amount</th><th>Actions</th></tr></thead>
+            <tbody>{!reportCards.length ? <tr><td colSpan={5} className="warehouse-empty-cell">{loading ? "Loading reports..." : "No warehouse reports found."}</td></tr> : reportCards.map(card => <tr key={card.date}><td>{card.date}</td><td>{card.itemCount.toLocaleString("en-IN")}</td><td>{card.totalPieces.toLocaleString("en-IN")}</td><td className="warehouse-money">{formatMoney(card.salesAmount)}</td><td><div className="warehouse-row-actions"><button type="button" onClick={() => setSelectedCard(card)} aria-label={`View report ${card.date}`}><Eye size={14} />View</button><button type="button" disabled={downloadDate === card.date} onClick={() => downloadReportExcel(card.date)} className="warehouse-row-export" aria-label={`Export report ${card.date}`}><Download size={14} />Excel</button><button type="button" onClick={() => deleteReport(card.date)} className="warehouse-row-delete" aria-label={`Delete report ${card.date}`}><Trash2 size={14} /></button></div></td></tr>)}</tbody>
+            {reportCards.length > 0 && <tfoot><tr><td>Grand total</td><td>{data.total_orders.toLocaleString("en-IN")}</td><td>{data.total_piece_qty.toLocaleString("en-IN")}</td><td>{formatMoney(data.total_invoice_amount)}</td><td /></tr></tfoot>}
+          </table>
         </div>
-      </div>
-
-      {/* Upload & Action Cards */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Upload 1: Sales Report */}
-        <div className="glass-panel rounded-3xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F2137]/10 text-[#0F2137] border border-[#0F2137]/20">
-              <Upload size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Upload Sales Report</h3>
-              <p className="text-xs text-slate-500">Upload Flipkart warehouse daily dispatches (CSV / Excel)</p>
-            </div>
-          </div>
-
-          <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300/80 bg-white/60 p-6 text-center transition hover:border-slate-400 hover:bg-white/90 cursor-pointer backdrop-blur-md shadow-xs">
-            <input
-              type="file"
-              accept=".csv, .xlsx, .xls"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="hidden"
-            />
-            <FileSpreadsheet className="h-10 w-10 text-slate-400 mb-2" />
-            <span className="text-sm font-semibold text-slate-800">
-              {file ? file.name : "Click or drag & drop Sales file"}
-            </span>
-            <span className="mt-1 text-xs text-slate-500">Supports .csv and .xlsx formats</span>
-          </label>
-
-          <div className="mt-4 flex items-center justify-between">
-            {file && (
-              <button
-                type="button"
-                onClick={() => setFile(null)}
-                className="text-xs font-semibold text-rose-600 hover:underline"
-              >
-                Clear file
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={!file || generating}
-              onClick={generateReport}
-              className="ml-auto inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50"
-            >
-              {generating ? "Generating..." : "Generate Report"}
-            </button>
-          </div>
-        </div>
-
-        {/* Upload 2: Malur Labels */}
-        <div className="glass-panel rounded-3xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-700 border border-blue-200">
-              <Download size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Generate Malur Labels</h3>
-              <p className="text-xs text-slate-500">Upload Malur Label Excel file to produce printable PDF</p>
-            </div>
-          </div>
-
-          <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300/80 bg-white/60 p-6 text-center transition hover:border-slate-400 hover:bg-white/90 cursor-pointer backdrop-blur-md shadow-xs">
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              onChange={(e) => setLabelFile(e.target.files?.[0] || null)}
-              className="hidden"
-            />
-            <FileSpreadsheet className="h-10 w-10 text-slate-400 mb-2" />
-            <span className="text-sm font-semibold text-slate-800">
-              {labelFile ? labelFile.name : "Click or drag & drop Label Excel file"}
-            </span>
-            <span className="mt-1 text-xs text-slate-500">Supports .xlsx and .xls formats</span>
-          </label>
-
-          <div className="mt-4 flex items-center justify-between">
-            {labelFile && (
-              <button
-                type="button"
-                onClick={() => setLabelFile(null)}
-                className="text-xs font-semibold text-rose-600 hover:underline"
-              >
-                Clear file
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={!labelFile || generatingLabels}
-              onClick={generateLabels}
-              className="ml-auto inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 to-blue-800 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
-            >
-              {generatingLabels ? "Generating PDF..." : "Generate Labels PDF"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Saved Reports Table (Glass Panel with 30vh scrolling) */}
-      <div className="glass-panel rounded-3xl p-6 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">Available Report Batches</h3>
-            <p className="text-xs text-slate-500">View, export, or manage saved warehouse dispatch records.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search date or SKU..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && loadRows(search)}
-                className="rounded-xl border border-slate-200/80 bg-white/80 py-2 pl-9 pr-3 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 shadow-xs backdrop-blur-md"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => loadRows(search)}
-              className="rounded-xl border border-slate-200/80 bg-white/80 p-2 text-slate-600 hover:bg-white shadow-xs"
-              title="Refresh"
-            >
-              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            </button>
-          </div>
-        </div>
-
-        {reportCards.length === 0 ? (
-          <div className="py-12 text-center text-slate-500">
-            <FileSpreadsheet className="mx-auto h-12 w-12 text-slate-300 mb-2" />
-            <p className="text-sm font-medium text-slate-700">No warehouse reports found.</p>
-            <p className="text-xs text-slate-400 mt-1">Upload a warehouse report file above to get started.</p>
-          </div>
-        ) : (
-          <div className="max-h-[30vh] overflow-y-auto overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/70 backdrop-blur-md">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-md text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200/80 shadow-xs">
-                <tr>
-                  <th className="px-4 py-3">Report Date</th>
-                  <th className="px-4 py-3 text-right">Unique Items</th>
-                  <th className="px-4 py-3 text-right">Total Pieces</th>
-                  <th className="px-4 py-3 text-right">Sales Amount</th>
-                  <th className="px-4 py-3 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {reportCards.map((card) => (
-                  <tr key={card.date} className="hover:bg-slate-100/50 transition">
-                    <td className="px-4 py-3 font-semibold text-slate-900">{card.date}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{card.itemCount}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-bold text-slate-900">{card.totalPieces}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-emerald-800">
-                      {formatMoney(card.salesAmount)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedCard(card)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200/80 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50"
-                          title="View Details"
-                        >
-                          <Eye size={14} className="text-blue-600" />
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          disabled={downloadDate === card.date}
-                          onClick={() => downloadReportExcel(card.date)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200/80 bg-white px-2.5 py-1.5 text-xs font-bold text-emerald-800 shadow-xs hover:bg-emerald-50 disabled:opacity-50"
-                          title="Download Excel"
-                        >
-                          <Download size={14} />
-                          Excel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteReport(card.date)}
-                          className="rounded-lg border border-slate-200/80 bg-white p-1.5 text-rose-600 shadow-xs hover:bg-rose-50"
-                          title="Delete Report"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Batch Viewer Modal */}
-      <DetailModal
-        card={selectedCard}
-        onClose={() => setSelectedCard(null)}
-        onDownload={downloadReportExcel}
-        downloading={Boolean(downloadDate)}
-      />
+      </section>
+      <DetailModal card={selectedCard} onClose={() => setSelectedCard(null)} onDownload={downloadReportExcel} downloading={Boolean(downloadDate)} />
     </div>
   );
 }

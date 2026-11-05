@@ -68,7 +68,7 @@ from app.models.stock_inventory import StockInventory
 
 from app.models.sticker_inventory import StickerInventory
 
-from app.models.packing_inventory import PackingInventory, PackingInventoryUsage
+from app.models.packing_inventory import PackingInventory
 from datetime import date
 
 from app.models.sales_upload import SalesUpload
@@ -76,16 +76,10 @@ from app.models.sales_upload import SalesUpload
 from app.models.inventory_deduction_log import InventoryDeductionLog
 
 from app.models.sales_analytics_detail import SalesAnalyticsDetail
+from app.services.product_trend_service import build_style_daily
+from app.services.label_output_service import build_flipkart_sku_sorted_pdf, label_output_filename
 
-from app.models.flipkart_zone_report import (
-
-    FlipkartZoneBatch,
-
-    FlipkartZoneBatchItem,
-
-    FlipkartZoneReport,
-
-)
+from app.models.zone_summary_report import ZoneSummaryReport
 
 
 
@@ -1022,377 +1016,14 @@ def deduct_packing_inventory_for_platform(db, platform, order_count, piece_count
         deducted_qty = min(previous_qty, requested_qty)
         row.qty = max(previous_qty - requested_qty, 0)
 
-        if previous_qty != row.qty:
-            from datetime import date
-            today = date.today()
-            usage_record = db.query(PackingInventoryUsage).filter_by(
-                usage_date=today,
-                item_type=row.item_type,
-                platform=row.platform,
-                name=row.name
-            ).first()
-            
-            if not usage_record:
-                usage_record = PackingInventoryUsage(
-                    usage_date=today,
-                    item_type=row.item_type,
-                    platform=row.platform,
-                    name=row.name,
-                    used_qty=0,
-                    restocked_qty=0
-                )
-                db.add(usage_record)
-            
-            usage_record.used_qty += (previous_qty - row.qty)
-
-        lines_updated += 1
-
-        total_qty_deducted += deducted_qty
-
-        deductions.append({
-
-            "style": row.item_type,
-
-            "color": row.name,
-
-            "size": row.platform,
-
-            "requested_qty": requested_qty,
-
-            "deducted_qty": deducted_qty,
-
-            "remaining_qty": row.qty,
-
-        })
-
-
+        if deducted_qty > 0:
+            deductions.append({
+                "style": row.item_type,
+                "qty": deducted_qty
+            })
 
     return {
-
-        "lines_updated": lines_updated,
-
-        "total_qty_deducted": total_qty_deducted,
-
         "deductions": deductions,
-
-    }
-
-
-
-
-
-def _log_inventory_deductions(
-
-    db: Session,
-
-    report_date: date,
-
-    platform: str,
-
-    inventory_type: str,
-
-    deductions,
-
-):
-
-    for deduction in deductions or []:
-
-        deducted_qty = _safe_int(
-
-            deduction.get("deducted_qty", 0)
-
-        )
-
-
-
-        if deducted_qty <= 0:
-
-            continue
-
-
-
-        raw_size = deduction.get("size")
-
-
-
-        db.add(
-
-            InventoryDeductionLog(
-
-                report_date=report_date,
-
-                platform=platform,
-
-                inventory_type=inventory_type,
-
-                style=str(deduction.get("style", "")).strip(),
-
-                color=str(deduction.get("color", "")).strip(),
-
-                size=(
-
-                    str(raw_size).strip()
-
-                    if raw_size is not None and str(raw_size).strip()
-
-                    else None
-
-                ),
-
-                qty=deducted_qty,
-
-            )
-
-        )
-
-
-
-
-
-def _restore_inventory_deduction_log(
-
-    db: Session,
-
-    report_date: date,
-
-    platform: str = None,
-
-):
-
-    query = db.query(InventoryDeductionLog).filter(
-
-        InventoryDeductionLog.report_date == report_date
-
-    )
-
-
-
-    if platform == "All":
-
-        query = query.filter(
-
-            InventoryDeductionLog.platform.in_(PLATFORM_NAMES)
-
-        )
-
-    elif platform:
-
-        query = query.filter(
-
-            InventoryDeductionLog.platform == platform
-
-        )
-
-
-
-    logs = query.all()
-
-
-
-    for log in logs:
-
-        qty = _safe_int(log.qty)
-
-
-
-        if qty <= 0:
-
-            continue
-
-
-
-        if log.inventory_type == "stock":
-
-            row = _find_stock_inventory_row(
-
-                db,
-
-                log.style,
-
-                log.color,
-
-                log.size,
-
-            )
-
-
-
-            if not row:
-
-                row = StockInventory(
-
-                    style=log.style,
-
-                    color=log.color,
-
-                    size=log.size,
-
-                    qty=0,
-
-                )
-
-                db.add(row)
-
-                db.flush()
-
-
-
-            row.qty = _safe_int(row.qty) + qty
-
-
-
-        elif log.inventory_type == "return":
-
-            row = db.query(ReturnInventory).filter(
-
-                ReturnInventory.style == log.style,
-
-                ReturnInventory.color == log.color,
-
-                ReturnInventory.size == log.size,
-
-            ).first()
-
-
-
-            if not row:
-
-                row = ReturnInventory(
-
-                    style=log.style,
-
-                    color=log.color,
-
-                    size=log.size,
-
-                    qty=0,
-
-                )
-
-                db.add(row)
-
-                db.flush()
-
-
-
-            row.qty = _safe_int(row.qty) + qty
-
-
-
-        elif log.inventory_type == "sticker":
-
-            row = _find_sticker_inventory_row(
-
-                db,
-
-                log.style,
-
-                log.color,
-
-            )
-
-
-
-            if not row:
-
-                row = StickerInventory(
-
-                    style=log.style,
-
-                    color=log.color,
-
-                    qty=0,
-
-                )
-
-                db.add(row)
-
-                db.flush()
-
-
-
-            row.qty = _safe_int(row.qty) + qty
-
-
-
-        elif log.inventory_type == "packing":
-
-            item_type = str(log.style or "").strip()
-
-            item_name = str(log.color or "").strip()
-
-            item_platform = str(log.size or "").strip() or None
-
-
-
-            row = db.query(PackingInventory).filter(
-
-                PackingInventory.item_type == item_type,
-
-                PackingInventory.name == item_name,
-
-                PackingInventory.platform == item_platform,
-
-            ).first()
-
-
-
-            if not row:
-                row = PackingInventory(
-                    item_type=item_type,
-                    platform=item_platform,
-                    name=item_name,
-                    qty=0,
-                )
-                db.add(row)
-                db.flush()
-
-            previous_qty = _safe_int(row.qty)
-            row.qty = previous_qty + qty
-            
-            if previous_qty != row.qty:
-                from datetime import date
-                today = date.today()
-                usage_record = db.query(PackingInventoryUsage).filter_by(
-                    usage_date=today,
-                    item_type=item_type,
-                    platform=item_platform,
-                    name=item_name
-                ).first()
-                if not usage_record:
-                    usage_record = PackingInventoryUsage(
-                        usage_date=today,
-                        item_type=item_type,
-                        platform=item_platform,
-                        name=item_name,
-                        used_qty=0,
-                        restocked_qty=0
-                    )
-                    db.add(usage_record)
-                usage_record.restocked_qty += (row.qty - previous_qty)
-
-    restored_count = len(logs)
-
-    restored_qty = sum(
-
-        _safe_int(log.qty)
-
-        for log in logs
-
-    )
-
-
-
-    query.delete(synchronize_session=False)
-
-
-
-    return {
-
-        "restored_logs": restored_count,
-
-        "restored_qty": restored_qty,
-
     }
 
 
@@ -3561,61 +3192,63 @@ def get_daily_report_flipkart_zone_summary(
 
 @router.get("/daily-report/flipkart-zone-summary/batches/{batch_id}")
 def get_daily_report_flipkart_zone_batch(
-    batch_id: int,
+    batch_id: str,
 ):
     db: Session = SessionLocal()
-
     try:
-        batch = (
-            db.query(FlipkartZoneBatch)
-            .filter(FlipkartZoneBatch.id == batch_id)
-            .first()
-        )
+        if "::" not in batch_id:
+            raise HTTPException(status_code=400, detail="Invalid batch id")
+        platform, source_filename = batch_id.split("::", 1)
+        
+        items = db.query(ZoneSummaryReport).filter(
+            ZoneSummaryReport.platform == platform,
+            ZoneSummaryReport.source_filename == source_filename
+        ).all()
 
-        if not batch:
+        if not items:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        items = (
-            db.query(FlipkartZoneBatchItem)
-            .filter(FlipkartZoneBatchItem.batch_id == batch_id)
-            .all()
-        )
+        total_count = sum(int(item.label_count or 0) for item in items)
+        first = items[0]
 
         return {
-            "id": batch.id,
-            "report_date": str(batch.report_date),
-            "source_filename": batch.source_filename or "",
-            "label_count": batch.label_count,
-            "platform": getattr(batch, "platform", "Flipkart") or "Flipkart",
-            "created_at": batch.created_at.isoformat() if batch.created_at else "",
+            "id": batch_id,
+            "report_date": str(first.report_date),
+            "source_filename": first.source_filename or "",
+            "label_count": total_count,
+            "platform": first.platform or "Flipkart",
+            "created_at": first.created_at.isoformat() if first.created_at else "",
             "items": [
                 {
                     "zone": item.zone,
-                    "label_count": item.label_count,
-                    "platform": getattr(item, "platform", "Flipkart") or "Flipkart",
+                    "label_count": int(item.label_count or 0),
+                    "platform": item.platform or "Flipkart",
                 }
                 for item in items
             ],
-            "total": sum(item.label_count for item in items),
+            "total": total_count,
         }
     finally:
         db.close()
 
 @router.delete("/daily-report/flipkart-zone-summary/batches/{batch_id}")
 def delete_daily_report_flipkart_zone_batch(
-    batch_id: int,
+    batch_id: str,
 ):
     db: Session = SessionLocal()
-
     try:
-        batch = db.query(FlipkartZoneBatch).filter(FlipkartZoneBatch.id == batch_id).first()
-        if not batch:
-            raise HTTPException(status_code=404, detail="Batch not found")
+        if "::" not in batch_id:
+            raise HTTPException(status_code=400, detail="Invalid batch id format")
+        platform, source_filename = batch_id.split("::", 1)
         
-        db.query(FlipkartZoneBatchItem).filter(FlipkartZoneBatchItem.batch_id == batch_id).delete()
-        db.delete(batch)
-        db.flush()
-        _sync_flipkart_zone_totals(db, batch.report_date)
+        deleted = db.query(ZoneSummaryReport).filter(
+            ZoneSummaryReport.platform == platform,
+            ZoneSummaryReport.source_filename == source_filename
+        ).delete()
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Batch not found")
+            
         db.commit()
         return {"success": True}
     finally:
@@ -4334,34 +3967,14 @@ def delete_daily_report(
         if (platform or "All") in ("All", "Flipkart"):
 
             deleted_zone_batch_item_rows = (
-
-                db.query(FlipkartZoneBatchItem)
-
-                .filter(FlipkartZoneBatchItem.report_date == parsed_date)
-
+                db.query(ZoneSummaryReport)
+                .filter(ZoneSummaryReport.report_date == parsed_date)
                 .delete(synchronize_session=False)
-
             )
 
-            deleted_zone_batch_rows = (
+            
 
-                db.query(FlipkartZoneBatch)
-
-                .filter(FlipkartZoneBatch.report_date == parsed_date)
-
-                .delete(synchronize_session=False)
-
-            )
-
-            deleted_zone_rows = (
-
-                db.query(FlipkartZoneReport)
-
-                .filter(FlipkartZoneReport.report_date == parsed_date)
-
-                .delete(synchronize_session=False)
-
-            )
+            
 
 
 
@@ -6579,6 +6192,8 @@ def _build_sales_pivot_analytics(
         "platform_wise": platform_rows,
 
         "style_wise": _size_table_rows(style_wise, "style"),
+
+        "style_daily": build_style_daily(report_rows, detail_rows),
 
         "color_wise": (
 
@@ -9477,27 +9092,7 @@ def save_packing_inventory(
             if old_qty != new_qty:
                 from datetime import date
                 today = date.today()
-                usage_record = db.query(PackingInventoryUsage).filter_by(
-                    usage_date=today,
-                    item_type=item_type,
-                    platform=platform,
-                    name=name
-                ).first()
-                if not usage_record:
-                    usage_record = PackingInventoryUsage(
-                        usage_date=today,
-                        item_type=item_type,
-                        platform=platform,
-                        name=name,
-                        used_qty=0,
-                        restocked_qty=0
-                    )
-                    db.add(usage_record)
-                
-                if new_qty < old_qty:
-                    usage_record.used_qty += (old_qty - new_qty)
-                else:
-                    usage_record.restocked_qty += (new_qty - old_qty)
+                usage_record = None # usage logic removed
 
             row.item_type = item_type
             row.platform = platform
@@ -10654,7 +10249,24 @@ def _collect_marketplace_orders(
 
 
 
+
+def _log_inventory_deductions(db, report_date, platform, inventory_type, deductions):
+    if not deductions:
+        return
+    for d in deductions:
+        log = InventoryDeductionLog(
+            report_date=report_date,
+            platform=platform,
+            inventory_type=inventory_type,
+            style=d.get("style", ""),
+            color=d.get("color", ""),
+            size=d.get("size", ""),
+            qty=d.get("qty", 0)
+        )
+        db.add(log)
+
 @router.post("/export-final-report")
+
 
 def export_final_report(
 
@@ -10689,7 +10301,8 @@ def export_final_report(
     include_detail_columns: bool = Form(True),
 
     include_order_summary: bool = Form(True),
-
+    manual_orders: Optional[str] = Form(None),
+    deleted_row_ids: Optional[str] = Form(None)
 ):
 
 
@@ -10711,6 +10324,37 @@ def export_final_report(
         flipkart_warehouse_file,
 
     )
+
+    all_orders = []
+    for p, p_orders in platform_orders.items():
+        for i, o in enumerate(p_orders):
+            o["row_id"] = f"{p}_{i}"
+            if "platform" not in o:
+                o["platform"] = p
+            all_orders.append(o)
+            
+    if manual_orders:
+        try:
+            import json
+            manuals = json.loads(manual_orders)
+            for i, m in enumerate(manuals):
+                m["row_id"] = f"manual_{i}"
+                all_orders.append(m)
+                if m.get("platform") not in platform_orders:
+                    platform_orders[m.get("platform", "Manual")] = []
+                platform_orders[m.get("platform", "Manual")].append(m)
+        except:
+            pass
+
+    if deleted_row_ids:
+        try:
+            import json
+            deleted = set(json.loads(deleted_row_ids))
+            all_orders = [o for o in all_orders if o.get("row_id") not in deleted]
+            for p in platform_orders:
+                platform_orders[p] = [o for o in platform_orders[p] if o.get("row_id") not in deleted]
+        except:
+            pass
 
 
 
@@ -11655,7 +11299,7 @@ def export_final_report(
 
 
 
-    def add_style_subtotal_row(style_name):
+    def add_style_subtotal_row(_style_name):
 
         subtotal_row = [
 
@@ -12182,6 +11826,37 @@ def confirm_final_report(
         flipkart_warehouse_file,
 
     )
+
+    all_orders = []
+    for p, p_orders in platform_orders.items():
+        for i, o in enumerate(p_orders):
+            o["row_id"] = f"{p}_{i}"
+            if "platform" not in o:
+                o["platform"] = p
+            all_orders.append(o)
+            
+    if manual_orders:
+        try:
+            import json
+            manuals = json.loads(manual_orders)
+            for i, m in enumerate(manuals):
+                m["row_id"] = f"manual_{i}"
+                all_orders.append(m)
+                if m.get("platform") not in platform_orders:
+                    platform_orders[m.get("platform", "Manual")] = []
+                platform_orders[m.get("platform", "Manual")].append(m)
+        except:
+            pass
+
+    if deleted_row_ids:
+        try:
+            import json
+            deleted = set(json.loads(deleted_row_ids))
+            all_orders = [o for o in all_orders if o.get("row_id") not in deleted]
+            for p in platform_orders:
+                platform_orders[p] = [o for o in platform_orders[p] if o.get("row_id") not in deleted]
+        except:
+            pass
 
 
 
@@ -14857,11 +14532,6 @@ def _build_flipkart_label_cropper_pdf(
 ):
 
     from pypdf import PdfReader, PdfWriter
-
-    from pypdf.generic import RectangleObject
-
-
-
     reader = PdfReader(input_path)
 
     writer = PdfWriter()
@@ -15715,57 +15385,47 @@ def _generate_zone_summary_excel(zone_counts, output_path):
 
 
 
-def _sync_flipkart_zone_totals(db: Session, report_date):
+def _save_zone_summary_report(
+    report_date,
+    zone_counts,
+    label_count=None,
+    source_filename=None,
+    platform="Flipkart",
+):
+    db = SessionLocal()
+    try:
+        total_labels = sum(int(val or 0) for val in zone_counts.values())
+        if total_labels == 0 and label_count is not None:
+            # If we don't have zone breakdown, put everything under 'UNKNOWN'
+            zone_counts = {'UNKNOWN': int(label_count)}
+            
+        for zone, count in zone_counts.items():
+            count = int(count or 0)
+            if count == 0: continue
+            
+            existing = db.query(ZoneSummaryReport).filter(
+                ZoneSummaryReport.report_date == report_date,
+                ZoneSummaryReport.platform == platform,
+                ZoneSummaryReport.zone == zone
+            ).first()
+            
+            if existing:
+                existing.label_count += count
+            else:
+                db.add(ZoneSummaryReport(
+                    report_date=report_date,
+                    platform=platform,
+                    zone=zone,
+                    label_count=count
+                ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Error saving zone summary report: {e}")
+    finally:
+        db.close()
 
-    db.query(FlipkartZoneReport).filter(
-
-        FlipkartZoneReport.report_date == report_date,
-
-    ).delete(synchronize_session=False)
-
-
-
-    totals = Counter()
-
-    batch_rows = (
-
-        db.query(FlipkartZoneBatchItem)
-
-        .filter(FlipkartZoneBatchItem.report_date == report_date)
-
-        .all()
-
-    )
-
-
-
-    for row in batch_rows:
-
-        totals[row.zone] += int(row.label_count or 0)
-
-
-
-    for zone, label_count in sorted(totals.items()):
-
-        db.add(
-
-            FlipkartZoneReport(
-
-                report_date=report_date,
-
-                zone=zone,
-
-                label_count=int(label_count or 0),
-
-            )
-
-        )
-
-
-
-
-
-def _save_flipkart_zone_report(
+def _save_zone_summary_report(
     report_date,
     zone_counts,
     label_count=None,
@@ -15773,143 +15433,79 @@ def _save_flipkart_zone_report(
     platform="Flipkart",
 ):
     db: Session = SessionLocal()
+    sf = source_filename or ""
 
     try:
-        if source_filename:
-            existing_batch = (
-                db.query(FlipkartZoneBatch)
-                .filter(
-                    FlipkartZoneBatch.report_date == report_date,
-                    FlipkartZoneBatch.source_filename == source_filename,
-                    FlipkartZoneBatch.platform == platform
-                )
-                .first()
-            )
-            if existing_batch:
-                db.query(FlipkartZoneBatchItem).filter(FlipkartZoneBatchItem.batch_id == existing_batch.id).delete()
-                db.delete(existing_batch)
-                db.flush()
+        # If same file is re-uploaded for same platform+date, delete existing rows for it
+        if sf:
+            db.query(ZoneSummaryReport).filter(
+                ZoneSummaryReport.report_date == report_date,
+                ZoneSummaryReport.platform == platform,
+                ZoneSummaryReport.source_filename == sf,
+            ).delete()
 
-        batch_label_count = sum(int(value or 0) for value in zone_counts.values())
-        if batch_label_count == 0 and label_count is not None:
-            batch_label_count = int(label_count)
-        batch = FlipkartZoneBatch(
-            report_date=report_date,
-            source_filename=source_filename,
-            platform=platform,
-            label_count=batch_label_count,
-        )
-        db.add(batch)
-        db.flush()
-
-        for zone, label_count in sorted(zone_counts.items()):
-            db.add(
-                FlipkartZoneBatchItem(
-                    batch_id=batch.id,
-                    report_date=report_date,
-                    zone=zone,
-                    platform=platform,
-                    label_count=int(label_count or 0),
-                )
-            )
-
-
-
-        _sync_flipkart_zone_totals(
-
-            db,
-
-            report_date,
-
-        )
+        for zone, count in sorted(zone_counts.items()):
+            db.add(ZoneSummaryReport(
+                report_date=report_date,
+                platform=platform,
+                zone=zone,
+                label_count=int(count or 0),
+                source_filename=sf,
+            ))
 
         db.commit()
 
-        return batch.id
-
+    except Exception as e:
+        db.rollback()
+        print(f"Error saving zone summary report: {e}")
     finally:
-
         db.close()
 
 
-
-
-
 def _flipkart_zone_summary_rows(db: Session, report_date):
-    batch_items = (
-        db.query(FlipkartZoneBatchItem)
-        .filter(FlipkartZoneBatchItem.report_date == report_date)
+    rows = (
+        db.query(ZoneSummaryReport)
+        .filter(ZoneSummaryReport.report_date == report_date)
+        .order_by(ZoneSummaryReport.platform, ZoneSummaryReport.zone, ZoneSummaryReport.source_filename)
         .all()
     )
 
-    platform_totals = {}
-    for row in batch_items:
-        platform = getattr(row, "platform", "Flipkart") or "Flipkart"
-        if platform not in platform_totals:
-            platform_totals[platform] = Counter()
-        platform_totals[platform][row.zone] += int(row.label_count or 0)
+    # Aggregate zone totals across all uploaded files per platform
+    totals = {}
+    for r in rows:
+        key = (r.platform or "Flipkart", r.zone)
+        totals[key] = totals.get(key, 0) + int(r.label_count or 0)
 
-    if not platform_totals:
-        legacy_rows = (
-            db.query(FlipkartZoneReport)
-            .filter(FlipkartZoneReport.report_date == report_date)
-            .order_by(FlipkartZoneReport.zone.asc())
-            .all()
-        )
-        if legacy_rows:
-            platform_totals["Flipkart"] = Counter()
-            for row in legacy_rows:
-                platform_totals["Flipkart"][row.zone] += int(row.label_count or 0)
-
-    items = []
-    for platform, totals in platform_totals.items():
-        for zone, label_count in sorted(totals.items()):
-            items.append({
-                "platform": platform,
-                "zone": zone,
-                "label_count": int(label_count or 0),
-            })
-    
-    # sort items by platform, then zone
-    items.sort(key=lambda x: (x["platform"], x["zone"]))
-
-    batches = [
-
-        {
-            "id": row.id,
-            "label_count": int(row.label_count or 0),
-            "source_filename": row.source_filename or "",
-            "platform": getattr(row, "platform", "Flipkart") or "Flipkart",
-            "created_at": row.created_at.isoformat() if row.created_at else "",
-        }
-
-        for row in (
-
-            db.query(FlipkartZoneBatch)
-
-            .filter(FlipkartZoneBatch.report_date == report_date)
-
-            .order_by(FlipkartZoneBatch.created_at.asc())
-
-            .all()
-
-        )
-
+    items = [
+        {"platform": p, "zone": z, "label_count": c}
+        for (p, z), c in sorted(totals.items())
     ]
 
+    # Build batches list: one entry per (platform, source_filename) combination
+    batch_map = {}
+    for r in rows:
+        plat = r.platform or "Flipkart"
+        sf = r.source_filename or ""
+        key = (plat, sf)
+        if key not in batch_map:
+            batch_map[key] = {
+                "platform": plat,
+                "source_filename": sf,
+                "label_count": 0,
+                "created_at": r.created_at.isoformat() if r.created_at else "",
+            }
+        batch_map[key]["label_count"] += int(r.label_count or 0)
 
+    batches = list(batch_map.values())
 
     return {
-
         "date": str(report_date),
-
         "items": items,
-
         "total": sum(item["label_count"] for item in items),
-
         "batches": batches,
-
     }
+
+
 
 
 
@@ -16474,6 +16070,8 @@ def label_cropper(
 
     flipkart_manual_zones: str = Form(None),
 
+    flipkart_sort_by_sku: bool = Form(False),
+
 ):
 
     ajio_label_uploads = [
@@ -16784,6 +16382,17 @@ def label_cropper(
 
 
 
+            if flipkart_sort_by_sku:
+                try:
+                    label_count = build_flipkart_sku_sorted_pdf(input_path, output_path)
+                except ValueError as error:
+                    raise HTTPException(status_code=400, detail=str(error)) from error
+                return FileResponse(
+                    output_path,
+                    media_type="application/pdf",
+                    filename=label_output_filename("Flipkart", label_count),
+                )
+
             flipkart_result = _build_flipkart_label_cropper_pdf(
 
                 input_path,
@@ -16813,6 +16422,10 @@ def label_cropper(
             ),
         ) from error
 
+    from pypdf import PdfReader
+    platform_name = {"amazon": "Amazon", "flipkart": "Flipkart", "ajio": "Ajio", "meesho": "Meesho"}[platform]
+    output_filename = label_output_filename(platform_name, len(PdfReader(output_path).pages))
+
     if flipkart_file or ajio_label_uploads or meesho_uploads:
         result = flipkart_result if flipkart_file else (ajio_result if ajio_label_uploads else meesho_result)
         source_file = flipkart_file if flipkart_file else (ajio_label_uploads[0] if ajio_label_uploads else meesho_uploads[0])
@@ -16828,7 +16441,7 @@ def label_cropper(
             )
 
         platform_name = "Flipkart" if flipkart_file else ("Ajio" if ajio_label_uploads else "Meesho")
-        _save_flipkart_zone_report(
+        _save_zone_summary_report(
             result["report_date"],
             result["zone_counts"],
             label_count=result["label_count"],
@@ -17322,30 +16935,180 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/packing-inventory/usage-history")
-def get_packing_usage_history(item_type: str = Query(None)):
-    db: Session = SessionLocal()
+def get_packing_usage_history(item_type: str = None):
+    return {"history": []}
+
+from app.models.packing_inventory import PackingInventoryAnalysis
+from io import BytesIO
+
+@router.post("/packing-inventory-analysis/upload")
+async def upload_packing_inventory_analysis(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    content = await file.read()
     try:
-        from datetime import timedelta, date
-        start_date = date.today() - timedelta(days=30)
+        df = pd.read_excel(BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading excel file: {e}")
         
-        query = db.query(PackingInventoryUsage).filter(PackingInventoryUsage.usage_date >= start_date)
-        if item_type and item_type != "all":
-            query = query.filter(PackingInventoryUsage.item_type == item_type)
+    cols = [str(c).lower().strip() for c in df.columns]
+    expected_cols = {'item type', 'platform', 'name', 'qty'}
+    if not expected_cols.issubset(set(cols)):
+        raise HTTPException(status_code=400, detail="Missing required columns: item type, platform, name, qty")
+        
+    col_map = {str(c).lower().strip(): c for c in df.columns}
+    
+    try:
+        today = date.today()
+        # Optionally, delete today's previous uploads for idempotency
+        # db.query(PackingInventoryAnalysis).filter_by(date=today).delete()
+        
+        for _, row in df.iterrows():
+            qty_val = row[col_map['qty']]
+            if pd.isna(qty_val):
+                qty_val = 0
+            else:
+                try:
+                    qty_val = int(qty_val)
+                except ValueError:
+                    qty_val = 0
             
-        rows = query.order_by(PackingInventoryUsage.usage_date.asc()).all()
+            p_val = row[col_map['platform']]
+            if pd.isna(p_val) or str(p_val).strip() == '':
+                p_val = None
+            else:
+                p_val = str(p_val).strip()
+                
+            db.add(PackingInventoryAnalysis(
+                date=today,
+                item_type=str(row[col_map['item type']]).strip(),
+                platform=p_val,
+                name=str(row[col_map['name']]).strip(),
+                qty=qty_val
+            ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error saving to database: {e}")
         
-        # Group by date for the chart
-        grouped = {}
-        for r in rows:
-            d_str = r.usage_date.strftime("%Y-%m-%d")
-            if d_str not in grouped:
-                grouped[d_str] = {"date": d_str, "used": 0, "restocked": 0}
-            grouped[d_str]["used"] += (r.used_qty or 0)
-            grouped[d_str]["restocked"] += (r.restocked_qty or 0)
+    return {"message": "Uploaded successfully"}
+
+@router.get("/packing-inventory-analysis/history")
+def get_packing_analysis_history(item_type: str = None, db: Session = Depends(get_db)):
+    query = db.query(
+        PackingInventoryAnalysis.date,
+        PackingInventoryAnalysis.item_type,
+        func.sum(PackingInventoryAnalysis.qty).label('total_qty')
+    )
+    
+    thirty_days_ago = date.today() - timedelta(days=30)
+    query = query.filter(PackingInventoryAnalysis.date >= thirty_days_ago)
+    
+    if item_type:
+        query = query.filter(PackingInventoryAnalysis.item_type == item_type)
+        
+    query = query.group_by(PackingInventoryAnalysis.date, PackingInventoryAnalysis.item_type)
+    query = query.order_by(PackingInventoryAnalysis.date.asc())
+    
+    results = query.all()
+    
+    history = {}
+    for r in results:
+        t = r.item_type
+        d = r.date.strftime('%Y-%m-%d')
+        q = r.total_qty or 0
+        if t not in history:
+            history[t] = []
+        history[t].append({'date': d, 'qty': q})
+        
+    return {"history": history}
+
+@router.post("/preview-final-report")
+async def preview_final_report(
+    flipkart_file: UploadFile = File(None),
+    flipkart_dispatch_period: Optional[str] = Form(None),
+    amazon_file: UploadFile = File(None),
+    ajio_file: UploadFile = File(None),
+    meesho_file: UploadFile = File(None),
+    myntra_file: UploadFile = File(None),
+    flipkart_warehouse_file: UploadFile = File(None),
+    manual_orders: Optional[str] = Form(None),
+    deleted_row_ids: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    all_orders, platform_orders = _collect_marketplace_orders(
+        flipkart_file, flipkart_dispatch_period, amazon_file,
+        ajio_file, meesho_file, myntra_file, flipkart_warehouse_file
+    )
+    
+    # assign row_ids
+    for i, o in enumerate(all_orders):
+        o["row_id"] = str(i)
+        
+    for p, p_orders in platform_orders.items():
+        for i, o in enumerate(p_orders):
+            # approximate row_id matching
+            o["row_id"] = f"{p}_{i}"
             
-        history = list(grouped.values())
-        history.sort(key=lambda x: x["date"])
+    # we should also assign row_id in all_orders properly
+    # let's rebuild all_orders from platform_orders to keep row_id consistent
+    all_orders = []
+    for p, p_orders in platform_orders.items():
+        for i, o in enumerate(p_orders):
+            o["row_id"] = f"{p}_{i}"
+            if "platform" not in o:
+                o["platform"] = p
+            all_orders.append(o)
+            
+    if manual_orders:
+        try:
+            import json
+            manuals = json.loads(manual_orders)
+            for i, m in enumerate(manuals):
+                m["row_id"] = f"manual_{i}"
+                all_orders.append(m)
+                if m.get("platform") not in platform_orders:
+                    platform_orders[m.get("platform", "Manual")] = []
+                platform_orders[m.get("platform", "Manual")].append(m)
+        except:
+            pass
+
+    if deleted_row_ids:
+        try:
+            import json
+            deleted = set(json.loads(deleted_row_ids))
+            all_orders = [o for o in all_orders if o.get("row_id") not in deleted]
+            for p in platform_orders:
+                platform_orders[p] = [o for o in platform_orders[p] if o.get("row_id") not in deleted]
+        except:
+            pass
+
+    aggregated_orders = aggregate_orders(all_orders)
+    expanded_inventory = expand_inventory(aggregated_orders, db)
+    final_report = generate_daily_report(expanded_inventory, db)
+    
+    summary = []
+    platform_reports = {}
+    
+    for platform, p_orders in platform_orders.items():
+        p_agg = aggregate_orders(p_orders)
+        p_exp = expand_inventory(p_agg, db)
+        p_rep = generate_daily_report(p_exp, db)
         
-        return {"history": history}
-    finally:
-        db.close()
+        platform_reports[platform] = p_rep
+        
+        t_orders = len(p_orders)
+        t_pieces = sum(r.get("total_order_qty", 0) for r in p_rep)
+        summary.append({
+            "platform": platform,
+            "total_orders": t_orders,
+            "piece_qty": t_pieces
+        })
+        
+    return {
+        "raw_orders": all_orders,
+        "summary": summary,
+        "report": final_report,
+        "platform_reports": platform_reports
+    }

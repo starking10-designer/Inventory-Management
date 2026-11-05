@@ -1,0 +1,102 @@
+.warehouse-page { --glass-edge: #ffffffe0; --glass-shadow: inset 0 1px 0 #fff, 0 10px 32px #38587c0c; display: flex; flex-direction: column; gap: 22px; min-width: 0; color: #203b5a; font-family: "Segoe UI", Arial, sans-serif; font-style: normal; }
+.warehouse-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.warehouse-kpis .dashboard-stat strong { font-size: clamp(23px, 2.1vw, 30px); overflow-wrap: anywhere; }
+.warehouse-workspace { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr); gap: 20px; align-items: stretch; }
+.warehouse-uploads { display: grid; gap: 16px; }
+.warehouse-upload-panel { display: block; padding: 16px; border-radius: 17px; }
+.warehouse-upload-panel .stock-import-heading h2 { font-size: 14px; }
+.warehouse-upload-description { font-size: 11px; color: #8397ad; margin: 7px 0 12px; }
+.warehouse-upload-panel .stock-upload-label { display: grid; grid-template-columns: 38px minmax(0, 1fr); min-height: 76px; padding: 10px 12px; gap: 3px 10px; }
+.warehouse-upload-panel .stock-file-icon { grid-row: 1 / 3; width: 38px; height: 38px; border-radius: 11px; }
+.warehouse-upload-panel .stock-upload-label > strong { align-self: end; font-size: 12px; }
+.warehouse-upload-panel .stock-upload-label > span:not(.stock-file-icon) { align-self: start; font-size: 10px; }
+.warehouse-upload-panel .stock-import-footer { margin-top: 10px; padding-top: 0; border-top: 0; }
+.warehouse-upload-panel .stock-clear-button, .warehouse-upload-panel .stock-preview-button { min-height: 34px; font-size: 11px; }
+.warehouse-chart-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px 0 4px; }
+.warehouse-chart-controls .return-analysis-chart-tabs button[aria-pressed="true"] { background: #203c5d; color: #fff; box-shadow: 0 3px 8px #172f4b20; }
+.warehouse-chart-dates { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.warehouse-chart-dates label { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #71869e; }
+.warehouse-chart-dates input { border: 1px solid #cfdeec; padding: 6px; border-radius: 7px; background: #ffffff90; color: #294967; font-size: 11px; }
+.warehouse-chart-canvas { height: 310px; width: 100%; min-width: 0; }
+.warehouse-chart-legend { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px 18px; padding-top: 12px; }
+.warehouse-chart-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #71869e; }
+.warehouse-chart-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.warehouse-empty { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #8397ad; text-align: center; padding: 20px; }
+.warehouse-reports { min-width: 0; }
+.warehouse-reports-heading h2 { font-size: 16px; font-weight: 700; color: #294967; }
+.warehouse-reports-heading p { font-size: 11px; color: #8397ad; margin-top: 4px; }
+.warehouse-search-button { min-height: 36px; padding: 9px 12px; border: 1px solid #d2dfed; border-radius: 9px; background: #ffffff90; color: #294967; font-size: 12px; font-weight: 600; cursor: pointer; }
+.warehouse-reports-scroll { max-height: 480px; overflow: auto; border: 1px solid #ffffffd6; border-radius: 13px; background: linear-gradient(125deg, #ffffff52, #e9f2fa40); box-shadow: 0 4px 18px #29496708; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.warehouse-reports-table.glass-table { min-width: 760px; }
+.warehouse-reports-table thead, .warehouse-detail-table thead { position: sticky; top: 0; z-index: 2; }
+.warehouse-reports-table tfoot, .warehouse-detail-table tfoot { position: sticky; bottom: 0; z-index: 1; }
+.warehouse-reports-table.glass-table th:nth-child(n+2), .warehouse-reports-table.glass-table td:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+.warehouse-reports-table .warehouse-money { color: #27815b; font-weight: 600; }
+.warehouse-row-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.warehouse-row-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 30px; padding: 6px 8px; border: 1px solid #cfdeec; border-radius: 8px; background: #ffffff90; color: #59718c; font-size: 11px; font-weight: 600; cursor: pointer; }
+.warehouse-row-actions .warehouse-row-export { color: #27815b; background: #eef9f3b3; border-color: #c3e2d4; }
+.warehouse-row-actions .warehouse-row-delete { color: #b85565; background: #fcecf080; border-color: #edc6cd; }
+.warehouse-row-actions button:disabled, .warehouse-search-button:disabled { opacity: .4; cursor: not-allowed; }
+.warehouse-detail-modal { width: 100%; max-width: 1000px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
+.warehouse-detail-heading { display: flex; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #d3dfec; flex-wrap: wrap; }
+.warehouse-detail-heading h2 { color: #294967; }
+.warehouse-detail-scroll { overflow: auto; min-height: 0; max-height: 65vh; overscroll-behavior: contain; }
+.warehouse-error { padding: 12px 15px; border: 1px solid #edc6cd; border-radius: 10px; background: #fcecf0b3; color: #bd465b; font-size: 12px; }
+.warehouse-page button:focus-visible { outline: 2px solid #5d88bd; outline-offset: 3px; }
+@media (max-width: 1100px) { .warehouse-workspace { grid-template-columns: minmax(0, 1fr); } .warehouse-uploads { grid-template-columns: repeat(2, minmax(0, 1fr)); } .warehouse-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .warehouse-page { gap: 18px; } .warehouse-kpis { gap: 10px; } .warehouse-uploads { grid-template-columns: minmax(0, 1fr); } .warehouse-chart-canvas { height: 270px; } .warehouse-chart-controls .return-analysis-chart-tabs { display: flex; } .warehouse-chart-controls .return-analysis-chart-tabs button { flex: none; } .warehouse-detail-heading { padding: 15px; } }
+
+/* Warehouse workspace cards */
+.warehouse-workspace { gap: 24px; }
+.warehouse-workspace, .warehouse-workspace * { font-family: "Segoe UI", Arial, sans-serif; font-style: normal; }
+.warehouse-performance.return-analysis-charts {
+  padding: 26px; border-radius: 24px; border: 1px solid #ffffffed;
+  background: #ffffffb8;
+  box-shadow: inset 0 1px 0 #fff, 0 12px 32px #2949670b;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.warehouse-card-eyebrow { display: block; margin-bottom: 10px; color: #526579; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.warehouse-performance .return-analysis-chart-header { padding-bottom: 20px; border-bottom-color: #b9cfdf66; }
+.warehouse-performance .return-analysis-chart-header h2 { font-size: 20px; font-weight: 650; letter-spacing: -.025em; gap: 10px; }
+.warehouse-performance .return-analysis-chart-header h2 svg { width: 30px; height: 30px; padding: 6px; border-radius: 9px; background: #d9e8f5; color: #3d6b92; }
+.warehouse-performance .return-analysis-chart-header p { margin-top: 7px; color: #526579; font-size: 13px; }
+.warehouse-chart-controls { padding: 20px 0 16px; }
+.warehouse-performance .return-analysis-chart-tabs { padding: 5px; border: 1px solid #ffffffdf; background: #dce8f280; border-radius: 13px; box-shadow: inset 0 1px 4px #27476606; }
+.warehouse-performance .return-analysis-chart-tabs button { padding: 9px 15px; border-radius: 9px; color: #5b7691; font-weight: 600; }
+.warehouse-chart-canvas { padding: 10px 8px 0 0; border: 1px solid #e1e7ed; border-radius: 16px; background: #fff; box-shadow: inset 0 1px 0 #fff; }
+.warehouse-chart-legend { padding-top: 18px; gap: 10px; }
+.warehouse-chart-legend span { padding: 6px 10px; border: 1px solid #ffffffbd; border-radius: 20px; background: #f6f8fa; color: #43566b; font-size: 12px; }
+.warehouse-uploads { gap: 20px; }
+.warehouse-upload-panel.stock-import-panel {
+  --warehouse-accent: #355d80; --warehouse-tint: #dce9f5;
+  position: relative; overflow: hidden; padding: 24px; border-radius: 24px; border: 1px solid #ffffffed;
+  background: radial-gradient(ellipse at 100% 0%, #dceaf8a6, transparent 65%), linear-gradient(130deg, #ffffffd4, #edf5fbb3);
+  box-shadow: inset 0 1px 0 #fff, 0 12px 32px #2949670b; backdrop-filter: blur(18px);
+}
+.warehouse-upload-panel.warehouse-upload-labels { --warehouse-accent: #35796f; --warehouse-tint: #dceeea; background: radial-gradient(ellipse at 100% 0%, #d9eeeb9c, transparent 65%), linear-gradient(130deg, #ffffffd4, #eef7f8b3); }
+.warehouse-upload-panel::before { content: ''; position: absolute; top: 0; left: 24px; width: 48px; height: 3px; border-radius: 0 0 4px 4px; background: var(--warehouse-accent); opacity: .55; }
+.warehouse-upload-panel .stock-import-heading { gap: 12px; }
+.warehouse-upload-panel .stock-import-heading h2 { font-size: 16px; font-weight: 650; color: #284762; letter-spacing: -.02em; }
+.warehouse-upload-panel .stock-import-icon { width: 40px; height: 40px; border-radius: 13px; background: var(--warehouse-tint); color: var(--warehouse-accent); box-shadow: inset 0 1px 0 #ffffffa3; }
+.warehouse-upload-panel .stock-file-status { padding: 5px 10px; border: 1px solid #ffffffd9; border-radius: 20px; background: #ffffff80; color: #59758d; font-size: 10px; }
+.warehouse-upload-description { margin: 12px 0 18px; color: #5e7890; font-size: 12px; line-height: 1.5; }
+.warehouse-upload-panel .stock-upload-field { border: 1px dashed #a9c0d3; border-radius: 16px; background: #ffffff66; transition: background .18s, border-color .18s; }
+.warehouse-upload-panel .stock-upload-field:hover { background: #ffffffc4; border-color: var(--warehouse-accent); }
+.warehouse-upload-panel .stock-upload-field:focus-within { outline: 2px solid var(--warehouse-accent); outline-offset: 3px; }
+.warehouse-upload-panel .stock-upload-label { min-height: 94px; padding: 16px; grid-template-columns: 46px minmax(0, 1fr); gap: 5px 14px; }
+.warehouse-upload-panel .stock-file-icon { width: 46px; height: 46px; background: #ffffffcc; border: 1px solid #ffffff; border-radius: 14px; color: var(--warehouse-accent); box-shadow: 0 4px 12px #29496708; }
+.warehouse-upload-panel .stock-upload-label > strong { font-size: 13px; font-weight: 600; color: #365775; }
+.warehouse-upload-panel .stock-upload-label > span:not(.stock-file-icon) { font-size: 11px; color: #647f96; }
+.warehouse-upload-panel .stock-upload-field[data-ready="true"] { border-color: #6daba0; background: #effaf5a3; }
+.warehouse-upload-panel .stock-import-footer { margin-top: 16px; gap: 12px; }
+.warehouse-upload-panel .stock-clear-button, .warehouse-upload-panel .stock-preview-button { min-height: 40px; border-radius: 11px; font-size: 12px; }
+.warehouse-upload-panel .stock-clear-button { background: #ffffff70; border: 1px solid #d0dfeb; color: #55728c; }
+.warehouse-upload-panel .stock-preview-button { background: var(--warehouse-accent); color: #fff; border: 1px solid var(--warehouse-accent); box-shadow: 0 4px 10px #29496712, inset 0 1px 0 #ffffff20; }
+.warehouse-upload-panel .stock-preview-button:disabled { opacity: 1; background: #d4e1ec; border-color: #d4e1ec; color: #5f788e; box-shadow: none; cursor: not-allowed; }
+.warehouse-upload-panel .stock-clear-button:disabled { opacity: 1; color: #8297a9; background: #ffffff30; border-color: #dae5ee; cursor: not-allowed; }
+@media(max-width:600px) {
+  .warehouse-performance.return-analysis-charts, .warehouse-upload-panel.stock-import-panel { padding: 20px; border-radius: 20px; }
+  .warehouse-performance .return-analysis-chart-header h2 { font-size: 18px; }
+  .warehouse-performance .return-analysis-chart-tabs button { padding: 8px 11px; }
+  .warehouse-chart-legend { gap: 6px; }
+}

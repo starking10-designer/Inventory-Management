@@ -87,12 +87,12 @@ export default function LoginPage({ onLoginSuccess }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
       {/* Ambient background glow orbs (Navy / Slate / Ice Blue) */}
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-slate-400/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-40 -left-40 w-96 h-96 glass/20 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-blue-400/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-slate-200/40 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] glass/40 rounded-full blur-3xl pointer-events-none" />
 
       {/* Glassmorphic Login Card */}
-      <div className="w-full max-w-md relative z-10 glass-panel rounded-3xl p-8 sm:p-10 shadow-2xl border border-white/90 bg-white/70 backdrop-blur-2xl">
+      <div className="w-full max-w-md relative z-10 glass-panel rounded-3xl p-8 sm:p-10 shadow-2xl border border-white/90 glass/70 backdrop-blur-2xl">
         {/* Header / Logo */}
         <div className="text-center mb-8">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#0F2137] via-[#1E3A66] to-[#0A192F] text-white shadow-lg shadow-slate-900/20 border border-white/60">
@@ -101,7 +101,7 @@ export default function LoginPage({ onLoginSuccess }) {
           <h1 className="text-2xl font-black tracking-tight text-slate-900">
             Admin Portal
           </h1>
-          <p className="mt-1.5 text-xs text-slate-500 font-medium">
+          <p className="mt-1.5 text-xs text-slate-800 font-medium font-medium">
             Welcome to the E-commerce Inventory Central
           </p>
         </div>
@@ -119,7 +119,7 @@ export default function LoginPage({ onLoginSuccess }) {
               Email Address
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-800 font-medium">
                 <Mail size={18} />
               </div>
               <input
@@ -128,7 +128,7 @@ export default function LoginPage({ onLoginSuccess }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter email address"
-                className="w-full rounded-2xl border border-slate-200/80 bg-white/80 py-3 pl-10 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 shadow-xs backdrop-blur-md transition"
+                className="w-full rounded-2xl border border-slate-200/80 glass/80 py-3 pl-10 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-800 font-medium focus:glass focus:outline-none focus:ring-2 focus:ring-slate-800 shadow-xs backdrop-blur-md transition"
               />
             </div>
           </div>
@@ -138,7 +138,7 @@ export default function LoginPage({ onLoginSuccess }) {
               Password
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-800 font-medium">
                 <Lock size={18} />
               </div>
               <input
@@ -147,12 +147,12 @@ export default function LoginPage({ onLoginSuccess }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full rounded-2xl border border-slate-200/80 bg-white/80 py-3 pl-10 pr-11 text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 shadow-xs backdrop-blur-md transition"
+                className="w-full rounded-2xl border border-slate-200/80 glass/80 py-3 pl-10 pr-11 text-sm font-semibold text-slate-900 placeholder:text-slate-800 font-medium focus:glass focus:outline-none focus:ring-2 focus:ring-slate-800 shadow-xs backdrop-blur-md transition"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700"
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-800 font-medium hover:text-slate-700"
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>

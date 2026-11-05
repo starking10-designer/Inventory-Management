@@ -1,0 +1,7 @@
+.sticker-data-table.glass-table { min-width: 540px; }
+.sticker-data-table.glass-table th:first-child { width: 40%; }
+.sticker-data-table.glass-table th:last-child, .sticker-data-table.glass-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.sticker-data-table.glass-table tbody tr { background: transparent; backdrop-filter: none; }
+.sticker-clear-filters { color: #b85565; font-size: 11px; font-weight: 600; padding: 6px; cursor: pointer; }
+.sticker-inventory-page .stock-preview-modal .sticker-data-table.glass-table th:first-child { width: 48px; }
+.sticker-inventory-page .stock-preview-modal .sticker-data-table.glass-table th:last-child { width: 100px; }

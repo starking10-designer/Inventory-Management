@@ -1,3 +1,4 @@
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import axios from "axios";
@@ -6,7 +7,6 @@ import {
   BarChart3,
   ChevronLeft,
   Filter,
-  IndianRupee,
   Layers3,
   Package,
   Palette,
@@ -15,6 +15,7 @@ import {
   Store,
 } from "lucide-react";
 import { API_BASE } from "../api.js";
+import "../sales-analytics-page.css";
 
 const PLATFORM_OPTIONS = ["All", "Flipkart", "Amazon", "Ajio", "Meesho", "Myntra", "Flipkart Warehouse"];
 
@@ -32,10 +33,6 @@ function monthStartIso() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 }
-function formatMoney(value) {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
-}
-
 export default function SalesAnalyticsReportPage() {
   const [searchParams] = useSearchParams();
   const [fromDate, setFromDate] = useState(searchParams.get("from_date") || monthStartIso());
@@ -69,59 +66,62 @@ export default function SalesAnalyticsReportPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
+    <div className="sales-analytics-page min-h-screen text-slate-800">
       {/* Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
+      <WorkspaceTopBar>
+        <div className="analytics-header-inner">
+          <div className="analytics-heading">
             <Link
               to="/#dashboard"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+              className="analytics-back-link"
             >
               <ChevronLeft size={16} />
               Dashboard
             </Link>
-            <div>
-              <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <BarChart3 size={20} className="text-[#0F2137]" />
+            <span className="analytics-heading-icon"><BarChart3 size={22} aria-hidden="true" /></span>
+            <div className="analytics-heading-copy">
+              <h1>
                 Sales Analytics
               </h1>
-              <p className="text-xs text-slate-500 font-medium">Cross-platform pivot reports, breakdown matrices, and revenue analytics.</p>
+              <p>Cross-platform pivot reports, breakdown matrices, and revenue analytics.</p>
             </div>
           </div>
         </div>
-      </header>
+      </WorkspaceTopBar>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-[1500px] px-6 py-6 space-y-6">
+      <main className="analytics-page-main">
         {/* Filter Bar */}
-        <div className="glass-panel rounded-3xl p-5 shadow-sm">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_200px_auto] items-end">
+        <div className="analytics-filter-panel">
+          <div className="analytics-filter-controls">
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">From Date</label>
+              <label htmlFor="analytics-from-date">From date</label>
               <input
+                id="analytics-from-date"
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-xs font-medium text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-slate-800"
+                className="analytics-filter-input"
               />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">To Date</label>
+              <label htmlFor="analytics-to-date">To date</label>
               <input
+                id="analytics-to-date"
                 type="date"
                 value={toDate}
                 min={fromDate || undefined}
                 onChange={(e) => setToDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-xs font-medium text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-slate-800"
+                className="analytics-filter-input"
               />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Platform</label>
+              <label htmlFor="analytics-platform">Platform</label>
               <select
+                id="analytics-platform"
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-xs font-medium text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-slate-800"
+                className="analytics-filter-input"
               >
                 {PLATFORM_OPTIONS.map((item) => (
                   <option key={item}>{item}</option>
@@ -133,7 +133,7 @@ export default function SalesAnalyticsReportPage() {
                 type="button"
                 onClick={loadAnalytics}
                 disabled={loading}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50"
+                className="analytics-apply-button"
               >
                 {loading ? <RefreshCw className="animate-spin" size={15} /> : <Filter size={15} />}
                 {loading ? "Filtering..." : "Apply Filters"}
@@ -143,37 +143,32 @@ export default function SalesAnalyticsReportPage() {
         </div>
 
         {/* Reports Cards Grid */}
-        <section>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <section aria-label="Sales analytics reports">
+          <div className="analytics-report-grid">
             {REPORTS.map((report) => {
               const Icon = report.icon;
               return (
                 <Link
                   key={report.key}
                   to={`/sales-analytics-report/${report.key}?${detailSearch}`}
-                  className="group relative rounded-2xl border border-slate-200/80 bg-white/70 p-5 transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:bg-white/95 hover:shadow-[0_12px_28px_rgba(15,33,55,0.08)] flex flex-col justify-between min-h-[160px] backdrop-blur-md"
+                  className="analytics-report-card"
+                  data-accent={report.key}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-2xl border ${report.accent} shadow-xs`}>
-                      <Icon size={22} />
+                  <div className="analytics-card-top">
+                    <div className="analytics-report-icon">
+                      <Icon size={23} strokeWidth={1.8} aria-hidden="true" />
                     </div>
-                    <span className="rounded-lg bg-white/90 border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-xs">
-                      {loading ? "..." : `${rowCount(report)} Rows`}
-                    </span>
+                    <div className="analytics-card-copy">
+                      <h3 className="analytics-card-title">{report.title}</h3>
+                      <p className="analytics-card-description">{report.description}</p>
+                    </div>
                   </div>
 
-                  <div className="mt-3">
-                    <h3 className="text-base font-extrabold text-slate-900 group-hover:text-[#0F2137] transition">
-                      {report.title}
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-500 font-medium line-clamp-2">
-                      {report.description}
-                    </p>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-end text-xs font-bold text-slate-600 group-hover:text-[#0F2137]">
-                    Open Detailed Matrix
-                    <ArrowRight size={15} className="ml-1 transition-transform group-hover:translate-x-1" />
+                  <div className="analytics-card-footer">
+                    <div className="analytics-record-count" aria-live="polite">
+                      {loading ? "Loading records…" : <><strong>{rowCount(report).toLocaleString("en-IN")}</strong> {rowCount(report) === 1 ? "record" : "records"}</>}
+                    </div>
+                    <span className="analytics-card-action">View report <ArrowRight size={16} className="analytics-card-arrow" aria-hidden="true" /></span>
                   </div>
                 </Link>
               );

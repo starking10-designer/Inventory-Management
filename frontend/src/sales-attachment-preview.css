@@ -1,0 +1,27 @@
+.mail-attachment-preview {
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-style: normal;
+}
+.attachment-overview { padding: 20px; }
+.attachment-summary-card { overflow: auto; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; box-shadow: 0 3px 12px #142c4905; }
+.attachment-platform-summary { width: 100%; min-width: 460px; border-collapse: separate; border-spacing: 0; }
+.attachment-platform-summary th,
+.attachment-platform-summary td { padding: 12px 14px; white-space: nowrap; text-align: right; font-size: 14px; color: #334155; font-variant-numeric: tabular-nums; }
+.attachment-platform-summary th:first-child { text-align: left; }
+.attachment-platform-summary thead th { padding-top: 13px; padding-bottom: 13px; color: #718096; font-size: 12px; font-weight: 600; border-bottom: 1px solid #e7edf5; }
+.attachment-platform-summary tbody th { font-weight: 600; color: #142c49; }
+.attachment-platform-summary tbody th,
+.attachment-platform-summary tbody td { padding-top: 19px; padding-bottom: 19px; }
+.attachment-platform-summary tbody tr + tr > * { border-top: 1px solid #edf1f5; }
+.attachment-platform-name { display: flex; align-items: center; gap: 9px; }
+.attachment-platform-mark { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; color: #203b5d; }
+.attachment-platform-icon { width: 24px; height: 24px; object-fit: contain; }
+.attachment-platform-summary .attachment-platform-amount { color: #15803d; font-weight: 650; }
+.attachment-platform-summary tfoot > tr > * { background: #eaf0f7; border-top: 1px solid #d6e1ee; color: #142c49; font-weight: 700; padding-top: 16px; padding-bottom: 16px; }
+.attachment-platform-summary tfoot td:last-child { color: #15803d; }
+@media (max-width: 640px) {
+  .attachment-overview { padding: 14px; }
+  .attachment-platform-summary th,
+  .attachment-platform-summary td { padding-left: 12px; padding-right: 12px; }
+}
+.mail-compose-field::placeholder { color: #94a3b8; opacity: .75; font-weight: 400; }

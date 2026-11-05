@@ -1,0 +1,94 @@
+/* One top navigation surface and sizing system for every workspace page. */
+.workspace-topbar.workspace-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
+  padding: 0;
+  background: linear-gradient(115deg, #10243b, #1b3552);
+  border: 0;
+  border-bottom: 1px solid #ffffff18;
+  box-shadow: 0 4px 18px #0b1b2e26;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #f0f5fb;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-style: normal;
+}
+.workspace-topbar .workspace-topbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 1600px;
+  min-height: 64px;
+  margin: auto;
+  padding: 10px 28px;
+}
+.workspace-topbar .workspace-topbar-content > div:only-child {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+.workspace-topbar .workspace-topbar-content h1 {
+  margin: 0;
+  color: #f0f5fb;
+  font-size: 20px;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: -.035em;
+  line-height: 1.2;
+}
+.workspace-topbar .workspace-topbar-content p {
+  margin-top: 4px;
+  color: #b2c4d8;
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.4;
+}
+.workspace-topbar :is(a, button) {
+  min-height: 36px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  font-style: normal;
+}
+.workspace-topbar :is(.analytics-back-link, .detail-back-link, .stock-back-link, .return-back-link) {
+  background: #ffffff0d;
+  border: 1px solid #ffffff26;
+  color: #e2ecf7;
+  box-shadow: none;
+}
+.workspace-topbar :is(.analytics-heading, .analytics-detail-heading) { gap: 14px; align-items: center; min-width: 0; }
+.workspace-topbar :is(.analytics-heading-copy, .detail-heading-copy) { min-width: 0; }
+.workspace-topbar :is(.analytics-heading-copy, .detail-heading-copy) p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.workspace-topbar :is(.analytics-heading-icon, .detail-report-icon) {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 11px;
+}
+.workspace-topbar .analytics-heading-icon { background: linear-gradient(145deg, #284d78, #142c49); color: #fff; box-shadow: 0 4px 10px #142c491a; }
+:is(.dashboard-theme, .sales-analytics-page, .analytics-detail-page) .workspace-topbar-content { height: 64px; min-height: 64px; }
+.workspace-topbar :is(.analytics-heading-copy, .detail-heading-copy) h1 { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) {
+  .workspace-topbar .workspace-topbar-content { padding: 10px 16px; flex-wrap: wrap; gap: 10px; }
+  .workspace-topbar .workspace-topbar-content > div:only-child { flex-wrap: wrap; gap: 12px; }
+  .workspace-topbar .workspace-topbar-content h1 { font-size: 19px; }
+  .workspace-topbar .workspace-topbar-content p { font-size: 11px; }
+  .workspace-topbar .workspace-topbar-content > div { min-width: 0; }
+}
+
+/* Keep navigation actions legible on the navy surface. */
+.workspace-topbar :is(a, button) { color: #e2ecf7; }
+.workspace-topbar :is(a, button).glass { background: #ffffff0d; border-color: #ffffff26; box-shadow: none; }
+.workspace-topbar :is(a, button):hover { background: #ffffff18; color: #fff; }
+.workspace-topbar :is(a, button):focus-visible { outline: 2px solid #a4c4e5; outline-offset: 3px; }
+.workspace-topbar .analytics-heading-icon { background: #ffffff12; border: 1px solid #ffffff26; box-shadow: inset 0 1px 0 #ffffff15; }

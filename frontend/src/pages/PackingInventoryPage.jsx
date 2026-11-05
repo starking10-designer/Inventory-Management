@@ -1,35 +1,39 @@
+import "../dashboard.css";
+import "../stock-inventory.css";
+import "../return-analysis.css";
+import "../packing-inventory.css";
+import { PACKING_SERIES, buildPackingTrend } from "../utils/packingTrend.js";
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
 import {
   useEffect,
   useMemo,
-  useState } from "react";import { Link } from "react-router-dom";import axios from "axios";import {  ChevronLeft,
+  useState } from "react";
+import { Link } from "react-router-dom";
+import axios from "axios";
+import {  ChevronLeft,
   Download,
-  Edit3,
   Layers,
-  Plus,
-  Save,
-  Trash2,
-  X,
-  RefreshCw,
   Search,
   Box,
   Package,
   Tag,
   FileText,
-  BarChart3,
+  Hash,
+  X,
+  Activity,
   TrendingUp,
-  TrendingDown,
-  Activity
+  Upload,
+  Eye,
+  Trash2,
+  Check,
+  FileSpreadsheet,
+  RefreshCw
 } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { API_BASE, getAdminKeyHeader } from "../api.js";
-import ExcelHeaderFilter from "../components/ExcelHeaderFilter.jsx";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { API_BASE } from "../api.js";
+import * as XLSX from "xlsx";
 
-const TABLES = [
-  { type: "shipping_label", title: "Shipping Label" },
-  { type: "shipping_cover", title: "Shipping Cover" },
-  { type: "packing_cover", title: "Packing Cover" },
-  { type: "packing_board", title: "Packing Board" },
-];
+const TABLES = PACKING_SERIES;
 
 const makeKey = () => `new-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -53,23 +57,12 @@ function normalizeRows(rows, platforms) {
         id: null,
         item_type: "shipping_cover",
         platform,
-        name: "Shipping Cover",
         qty: 0,
       });
     }
   }
 
   return nextRows;
-}
-
-function cleanPayloadRow(row) {
-  return {
-    id: row.id ?? null,
-    item_type: row.item_type,
-    platform: row.item_type === "shipping_cover" ? row.platform : null,
-    name: row.name,
-    qty: Number(row.qty || 0),
-  };
 }
 
 async function downloadPackingExcel() {
@@ -88,32 +81,37 @@ async function downloadPackingExcel() {
 
 export default function PackingInventoryPage() {
   const [rows, setRows] = useState([]);
-  const [originalRows, setOriginalRows] = useState([]);
   const [platforms, setPlatforms] = useState([]);
-  const [deletedIds, setDeletedIds] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [searchFilter, setSearchFilter] = useState("");
-  const [activeTable, setActiveTable] = useState("shipping_label");
-  const [historyData, setHistoryData] = useState([]);
+  const [activeTab, setActiveTab] = useState(TABLES[0].type);
+
+  const [historyData, setHistoryData] = useState({});
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  useEffect(() => {
-    async function fetchHistory() {
-      setLoadingHistory(true);
-      try {
-        const { data } = await axios.get(`${API_BASE}/packing-inventory/usage-history?item_type=${activeTable}`);
-        setHistoryData(data.history || []);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoadingHistory(false);
-      }
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const { data } = await axios.get(`${API_BASE}/packing-inventory-analysis/history`);
+      setHistoryData(data.history || {});
+    } catch (error) {
+      console.error("Failed to fetch history:", error);
+    } finally {
+      setLoadingHistory(false);
     }
+  };
+
+  useEffect(() => {
     fetchHistory();
-  }, [activeTable]);
+  }, []);
+
+  const chartData = useMemo(() => buildPackingTrend(historyData), [historyData]);
+
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [previewModal, setPreviewModal] = useState(false);
+  const [previewData, setPreviewData] = useState([]);
 
   const groupedRows = useMemo(() => {
     const grouped = {};
@@ -123,7 +121,7 @@ export default function PackingInventoryPage() {
     }
     for (const table of TABLES) {
       grouped[table.type].sort((a, b) =>
-        String(a.platform || a.name).localeCompare(String(b.platform || b.name)),
+        String(a.platform || "").localeCompare(String(b.platform || "")),
       );
     }
     return grouped;
@@ -137,8 +135,6 @@ export default function PackingInventoryPage() {
       const normalized = normalizeRows(data.rows ?? [], platformList);
       setPlatforms(platformList);
       setRows(normalized);
-      setOriginalRows(normalized);
-      setDeletedIds([]);
     } catch (error) {
       console.error(error);
       alert("Failed to load packing inventory");
@@ -151,70 +147,45 @@ export default function PackingInventoryPage() {
     loadRows();
   }, []);
 
-  const updateRow = (key, field, value) => {
-    setRows((current) =>
-      current.map((row) =>
-        row._key === key ? { ...row, [field]: field === "qty" ? Math.max(0, Number(value || 0)) : value } : row,
-      ),
-    );
-  };
-
-  const addRow = (type) => {
-    setRows((current) => [
-      ...current,
-      {
-        _key: makeKey(),
-        id: null,
-        item_type: type,
-        platform: null,
-        name: "",
-        qty: 0,
-      },
-    ]);
-  };
-
-  const deleteRow = (target) => {
-    if (target.id) {
-      setDeletedIds((ids) => [...ids, target.id]);
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    setUploadFile(file);
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        setPreviewData(data.slice(0, 10)); // preview first 10 rows
+      };
+      reader.readAsBinaryString(file);
+    } else {
+      setPreviewData([]);
     }
-    setRows((current) => current.filter((row) => row._key !== target._key));
   };
 
-  const cancelEdit = () => {
-    setRows(originalRows.map((row) => ({ ...row })));
-    setDeletedIds([]);
-    setEditing(false);
-  };
+  const submitUpload = async () => {
+    if (!uploadFile) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", uploadFile);
 
-  const saveRows = async () => {
-    setSaving(true);
     try {
-      const payloadItems = rows
-        .filter((row) => row.item_type === "shipping_cover" || String(row.name || "").trim().length > 0)
-        .map(cleanPayloadRow);
-
-      await axios.put(
-        `${API_BASE}/packing-inventory`,
-        {
-          items: payloadItems,
-          deleted_ids: deletedIds,
-        },
-        { headers: getAdminKeyHeader() },
-      );
-
-      await loadRows();
-      setEditing(false);
-      alert("Packing inventory saved successfully.");
+      await axios.post(`${API_BASE}/packing-inventory-analysis/upload`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      alert("Analysis data uploaded successfully");
+      setUploadFile(null);
+      setPreviewModal(false);
+      setPreviewData([]);
+      fetchHistory();
     } catch (error) {
       console.error(error);
-      const msg = error.response?.data?.detail;
-      alert(
-        typeof msg === "string"
-          ? msg
-          : "Save failed. Set VITE_ADMIN_KEY in frontend .env to match server ADMIN_API_KEY.",
-      );
+      alert(error.response?.data?.detail || "Upload failed");
     } finally {
-      setSaving(false);
+      setUploading(false);
     }
   };
 
@@ -230,381 +201,142 @@ export default function PackingInventoryPage() {
     }
   };
 
-  const renderSimpleTable = (table) => {
-    let tableRows = groupedRows[table.type] ?? [];
-    if (searchFilter.trim()) {
-      tableRows = tableRows.filter((r) =>
-        String(r.name || "").toLowerCase().includes(searchFilter.trim().toLowerCase()),
-      );
-    }
+  const totalQuantity = rows.reduce((sum, row) => sum + Number(row.qty || 0), 0);
+  const totalItems = rows.filter(r => r.qty > 0).length;
+
+  const renderTable = (table) => {
+    const tableRows = (groupedRows[table.type] || []).filter(row =>
+      !searchFilter.trim() || String(row.platform || table.title).toLowerCase().includes(searchFilter.trim().toLowerCase()),
+    );
     const total = tableRows.reduce((sum, row) => sum + Number(row.qty || 0), 0);
-
     return (
-      <section
-        key={table.type}
-        className="bg-white shadow-xl shadow-slate-200/40 rounded-3xl border border-slate-200/60 transition-all hover:shadow-2xl hover:shadow-slate-200/50 flex flex-col relative group w-full max-h-full h-fit"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 bg-gradient-to-r from-slate-50 to-white rounded-t-3xl">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F2137]/5 text-[#0F2137]">
-              <Layers size={18} className="opacity-80" />
-            </div>
-            <div>
-              <h2 className="text-base font-black text-slate-900 tracking-tight">{table.title}</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                {tableRows.length} item{tableRows.length === 1 ? "" : "s"} &bull; Total <span className="text-[#0F2137] font-bold">{total.toLocaleString()}</span> units
-              </p>
-            </div>
-          </div>
-          {editing && (
-            <button
-              type="button"
-              onClick={() => addRow(table.type)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#0F2137] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#1E3A66] shadow-md hover:shadow-lg transition-all hover:-translate-y-0.5 active:scale-95"
-            >
-              <Plus size={14} />
-              Add Item
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1 overflow-auto p-2.5 min-h-0">
-          <table className="w-full min-w-[480px] text-sm border-separate border-spacing-y-1.5">
-            <thead>
-              <tr>
-                <th className="px-3 py-1.5 text-left text-xs font-extrabold uppercase tracking-widest text-slate-400">Item Name</th>
-                <th className="px-3 py-1.5 text-right text-xs font-extrabold uppercase tracking-widest text-slate-400 w-36">Quantity</th>
-                {editing && <th className="px-3 py-1.5 text-center text-xs font-extrabold uppercase tracking-widest text-slate-400 w-20">Action</th>}
-              </tr>
-            </thead>
+      <div className="packing-table-section">
+        <div className="packing-table-caption"><h2>{table.title}</h2><span>{tableRows.length} items</span></div>
+        <div className="packing-table-scroll" data-lenis-prevent tabIndex={0} aria-label={`Scrollable ${table.title} inventory`}>
+          <table className="glass-table stock-data-table packing-data-table">
+            <thead><tr><th>{table.type === "shipping_cover" ? "Platform" : "Item name"}</th><th>Quantity</th></tr></thead>
             <tbody>
-              {tableRows.length === 0 ? (
-                <tr>
-                  <td colSpan={editing ? 3 : 2} className="px-4 py-12 text-center">
-                    <div className="inline-flex flex-col items-center justify-center text-slate-400">
-                      <Layers size={32} className="mb-3 opacity-20" />
-                      <span className="text-sm font-semibold">No items found</span>
-                      <span className="text-xs mt-1">Add items to populate this category.</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                tableRows.map((row) => (
-                  <tr key={row._key} className="bg-slate-50/50 hover:bg-emerald-50/40 transition-colors group">
-                    <td className="px-3 py-1.5 font-bold text-slate-800 rounded-l-xl">
-                      {editing ? (
-                        <input
-                          type="text"
-                          value={row.name}
-                          onChange={(e) => updateRow(row._key, "name", e.target.value)}
-                          placeholder="Item name"
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-900 outline-none focus:border-[#0F2137] focus:ring-2 focus:ring-[#0F2137]/20 transition-all shadow-sm"
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2.5">
-                          {table.type === 'shipping_label' ? <Tag size={15} className="text-[#0F2137] opacity-60" /> : 
-                           table.type === 'packing_cover' ? <FileText size={15} className="text-[#0F2137] opacity-60" /> : 
-                           table.type === 'packing_board' ? <Box size={15} className="text-[#0F2137] opacity-60" /> : 
-                           <Layers size={15} className="text-[#0F2137] opacity-60" />}
-                          <span className="group-hover:text-[#0F2137] transition-colors">{row.name || "-"}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums text-sm font-black text-slate-700 ${!editing && 'rounded-r-xl'}`}>
-                      {editing ? (
-                        <input
-                          type="number"
-                          min={0}
-                          value={row.qty}
-                          onChange={(e) => updateRow(row._key, "qty", e.target.value)}
-                          className="w-24 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right text-xs font-bold text-slate-900 outline-none focus:border-[#0F2137] focus:ring-2 focus:ring-[#0F2137]/20 transition-all shadow-sm"
-                        />
-                      ) : (
-                        row.qty ? <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md font-extrabold tabular-nums border border-slate-200/60 shadow-sm">{row.qty.toLocaleString()}</span> : <span className="text-slate-300">-</span>
-                      )}
-                    </td>
-                    {editing && (
-                      <td className="px-3 py-1.5 text-center rounded-r-xl">
-                        <button
-                          type="button"
-                          onClick={() => deleteRow(row)}
-                          className="rounded-lg p-1.5 text-rose-400 hover:bg-rose-100 hover:text-rose-600 transition-colors"
-                          title="Delete item"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))
-              )}
+              {tableRows.length ? tableRows.map(row => (
+                <tr key={row._key}><td><span className="packing-item-name"><span style={{ backgroundColor: table.color }} />{row.platform || table.title}</span></td><td>{Number(row.qty || 0).toLocaleString("en-IN")}</td></tr>
+              )) : <tr><td colSpan={2} className="packing-empty">No items found</td></tr>}
             </tbody>
+            {tableRows.length > 0 && <tfoot><tr><td>Subtotal</td><td>{total.toLocaleString("en-IN")}</td></tr></tfoot>}
           </table>
         </div>
-        
-        {tableRows.length > 0 && (
-          <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 rounded-b-3xl flex justify-between items-center">
-            <span className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Subtotal</span>
-            <span className="text-lg tabular-nums text-[#0F2137] font-black">{total.toLocaleString()}</span>
-          </div>
-        )}
-      </section>
-    );
-  };
-
-  const renderShippingCoverTable = (table) => {
-    const byPlatform = new Map(
-      (groupedRows.shipping_cover ?? []).map((row) => [row.platform, row]),
-    );
-    const total = platforms.reduce((sum, platform) => {
-      const row = byPlatform.get(platform);
-      return sum + Number(row?.qty || 0);
-    }, 0);
-
-    return (
-      <section
-        key={table.type}
-        className="bg-white shadow-xl shadow-slate-200/40 rounded-3xl border border-slate-200/60 transition-all hover:shadow-2xl hover:shadow-slate-200/50 flex flex-col relative group w-full max-h-full h-fit overflow-hidden"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 bg-gradient-to-r from-slate-50 to-white">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-500/10 text-teal-700">
-              <Layers size={18} className="opacity-80" />
-            </div>
-            <div>
-              <h2 className="text-base font-black text-slate-900 tracking-tight">{table.title}</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Platform breakdown &bull; Total <span className="text-teal-700 font-bold">{total.toLocaleString()}</span> covers
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex-1 overflow-auto p-2.5 min-h-0">
-          <table className="w-full min-w-[520px] text-center text-sm border-separate border-spacing-0 rounded-xl overflow-hidden ring-1 ring-slate-200">
-            <thead className="bg-slate-50 text-xs font-extrabold uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-4 py-1.5 text-left border-b border-r border-slate-200">Item</th>
-                {platforms.map((platform) => (
-                  <th key={platform} className="px-3 py-1.5 border-b border-r border-slate-200 last:border-r-0">
-                    <span className="bg-white shadow-sm border border-slate-200 px-3 py-1.5 rounded-lg text-slate-700">{platform}</span>
-                  </th>
-                ))}
-                <th className="px-4 py-1.5 text-right border-b border-l border-slate-200 bg-teal-50/50 text-teal-800">Total</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white">
-              <tr className="hover:bg-slate-50/50 transition">
-                <td className="px-4 py-3 text-left font-black text-slate-800 border-r border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <Package size={16} className="text-teal-600 opacity-80" />
-                    Shipping Cover
-                  </div>
-                </td>
-                {platforms.map((platform) => {
-                  const row = byPlatform.get(platform);
-                  return (
-                    <td key={platform} className="px-3 py-3 border-r border-slate-100 last:border-r-0">
-                      {editing && row ? (
-                        <input
-                          type="number"
-                          min={0}
-                          value={row.qty}
-                          onChange={(e) => updateRow(row._key, "qty", e.target.value)}
-                          className="mx-auto w-24 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-center text-sm font-black text-slate-900 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/20 transition-all shadow-inner"
-                        />
-                      ) : (
-                        row?.qty ? <span className="inline-block bg-white text-teal-800 px-3 py-1.5 rounded-lg font-black tabular-nums text-sm border border-slate-200 shadow-sm">{row.qty.toLocaleString()}</span> : <span className="text-slate-300">-</span>
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="px-4 py-3 text-right font-black text-teal-700 tabular-nums text-lg border-l border-slate-200 bg-teal-50/30">
-                  {total.toLocaleString()}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </div>
     );
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-slate-50/80 text-slate-800">
-      {/* Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-20 shrink-0">
-        <div className="mx-auto flex max-w-[1600px] w-full flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/#inventory"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
-            >
-              <ChevronLeft size={16} />
-              Inventory
-            </Link>
-            <div>
-              <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Layers size={20} className="text-[#0F2137]" />
-                Packing Inventory
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">
-                Shipping labels, covers, packing covers, and boards tracking.
-              </p>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={downloadAllTables}
-              disabled={downloading || loading}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-40 transition"
-            >
-              <Download size={14} />
-              {downloading ? "Downloading..." : "Export Excel"}
-            </button>
-
-            {editing ? (
-              <>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-xs transition"
-                >
-                  <X size={15} />
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={saveRows}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 px-4 py-1.5 text-xs font-bold text-white hover:from-emerald-700 hover:to-teal-800 disabled:opacity-50 transition shadow-sm"
-                >
-                  <Save size={15} />
-                  {saving ? "Saving..." : "Save Changes"}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                disabled={loading}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-1.5 text-xs font-bold text-white hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50 transition shadow-sm"
-              >
-                <Edit3 size={15} />
-                Edit Inventory
-              </button>
-            )}
-          </div>
+    <div className="stock-inventory-page packing-inventory-page">
+      <WorkspaceTopBar>
+        <div className="stock-page-heading">
+          <Link to="/#inventory" className="stock-back-link" aria-label="Back to Inventory"><ChevronLeft size={18} /></Link>
+          <span className="stock-page-icon"><Layers size={20} /></span>
+          <div><h1>Packing Inventory</h1><p>Shipping labels, covers &amp; packing materials</p></div>
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="mx-auto w-full flex-1 overflow-hidden flex bg-white/40">
-        {/* Sidebar */}
-        <aside className="w-64 border-r border-slate-200/60 bg-slate-50/50 backdrop-blur-xl shrink-0 flex flex-col p-4 gap-2 overflow-y-auto z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
-          <div className="text-xs font-extrabold uppercase tracking-widest text-slate-400 mb-2 px-2">Categories</div>
-          {TABLES.map((table) => {
-            const isActive = activeTable === table.type;
-            return (
-              <button
-                key={table.type}
-                onClick={() => setActiveTable(table.type)}
-                className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all font-bold text-sm text-left ${
-                  isActive 
-                    ? 'bg-gradient-to-r from-teal-500/10 to-emerald-500/10 text-teal-800 shadow-sm ring-1 ring-teal-500/20' 
-                    : 'text-slate-600 hover:bg-white hover:shadow-sm hover:text-slate-900'
-                }`}
-              >
-                <div className={`p-1.5 rounded-lg ${isActive ? 'bg-teal-500/20 text-teal-700' : 'bg-slate-200/50 text-slate-500'}`}>
-                  {table.type === 'shipping_label' ? <Tag size={16} /> : 
-                   table.type === 'packing_cover' ? <FileText size={16} /> : 
-                   table.type === 'packing_board' ? <Box size={16} /> : 
-                   <Layers size={16} />}
-                </div>
-                {table.title}
-              </button>
-            );
-          })}
-        </aside>
-
-        {/* Center Content */}
-        <section className="flex-1 flex flex-col min-w-0 overflow-hidden px-6 py-6 gap-6 bg-slate-50/30">
-          
-          {/* Top Graph */}
-          <div className="h-48 bg-white rounded-3xl border border-slate-200/60 shadow-xl shadow-slate-200/20 p-4 shrink-0 flex flex-col relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-teal-50/30 via-transparent to-transparent pointer-events-none" />
-            <div className="flex items-center justify-between mb-4 relative">
-              <h3 className="font-black text-slate-800 text-sm flex items-center gap-2">
-                <div className="p-1.5 bg-teal-500/10 text-teal-600 rounded-lg"><Activity size={16} /></div>
-                30-Day Usage History
-              </h3>
-              {loadingHistory && <RefreshCw size={14} className="animate-spin text-slate-400" />}
+      </WorkspaceTopBar>
+      <main className="stock-page-content">
+        <section className="stock-kpi-grid packing-kpi-grid" aria-label="Packing inventory overview">
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Total quantity</span><span className="dashboard-icon"><Package size={21} /></span></div>
+            <strong>{loading ? "..." : totalQuantity.toLocaleString("en-IN")}</strong><p>Units across all packing materials</p>
+          </article>
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Active items</span><span className="dashboard-icon blue"><Hash size={21} /></span></div>
+            <strong>{loading ? "..." : totalItems.toLocaleString("en-IN")}</strong><p>Items with available stock</p>
+          </article>
+          <section className="stock-import-panel" aria-labelledby="packing-upload-title">
+            <div className="stock-import-heading"><span className="stock-import-icon"><Upload size={18} /></span><h2 id="packing-upload-title">Upload analysis</h2><span className="stock-file-status">{uploadFile ? "File ready" : "Excel"}</span></div>
+            <div className="stock-upload-field" data-ready={!!uploadFile}>
+              <label className="stock-upload-label">
+                <input type="file" accept=".xlsx,.xls" className="stock-file-input" aria-label="Upload packing analysis Excel" disabled={!!uploadFile || uploading} onChange={e => { handleFileChange(e); e.target.value = ""; }} />
+                <span className="stock-file-icon">{uploadFile ? <Check size={30} /> : <FileSpreadsheet size={30} />}</span>
+                <strong title={uploadFile?.name}>{uploadFile ? uploadFile.name : "Choose analysis file"}</strong><span>{uploadFile ? "Ready to preview" : "XLSX or XLS"}</span>
+              </label>
             </div>
-            
-            <div className="flex-1 min-h-0 relative">
-              {historyData.length === 0 && !loadingHistory ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
-                  <BarChart3 size={32} className="mb-2 opacity-20" />
-                  <span className="text-xs font-bold">No usage data recorded yet</span>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorUsed" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0F2137" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#0F2137" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorRestocked" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="date" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} minTickGap={20} />
-                    <YAxis tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
-                      labelStyle={{ fontWeight: 'bold', color: '#334155', marginBottom: '4px' }}
-                    />
-                    <Area type="monotone" dataKey="used" name="Used Qty" stroke="#0F2137" strokeWidth={3} fillOpacity={1} fill="url(#colorUsed)" />
-                    <Area type="monotone" dataKey="restocked" name="Restocked" stroke="#0d9488" strokeWidth={3} fillOpacity={1} fill="url(#colorRestocked)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+            <div className="stock-import-footer">
+              <button type="button" className="stock-clear-button" disabled={!uploadFile || uploading} onClick={() => { setUploadFile(null); setPreviewData([]); }}><Trash2 size={14} /> Clear file</button>
+              <button type="button" className="stock-preview-button" disabled={!uploadFile || uploading} onClick={() => setPreviewModal(true)}><Eye size={15} /> Preview analysis</button>
             </div>
+          </section>
+        </section>
+        <section className="return-analysis-charts packing-performance" aria-labelledby="packing-performance-title">
+          <div className="return-analysis-chart-header">
+            <div><h2 id="packing-performance-title"><Activity size={19} /> Packing performance</h2><p>Daily upload quantities by material over the last 30 days.</p></div>
+            {loadingHistory && <RefreshCw size={17} className="animate-spin" aria-label="Loading packing history" />}
           </div>
-
-          {/* Table Container */}
-          <div className="shrink min-h-0 overflow-hidden flex flex-col relative">
-            <div className="absolute top-4 right-6 z-10 flex max-w-xs items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-1.5 shadow-sm backdrop-blur-md">
-              <Search size={14} className="text-slate-400" />
-              <input
-                type="search"
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder="Search items..."
-                className="w-full bg-transparent text-xs font-bold outline-none text-slate-800 placeholder-slate-400"
-              />
-              {searchFilter && <button onClick={() => setSearchFilter("")}><X size={14} className="text-rose-500 hover:text-rose-700"/></button>}
-            </div>
-            
-            {loading ? (
-              <div className="flex h-full items-center justify-center text-slate-500 font-medium text-sm bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-200/60">
-                <RefreshCw size={20} className="animate-spin text-[#0F2137] mr-2" />
-                Loading inventory...
-              </div>
-            ) : (
-              activeTable === "shipping_cover" 
-                ? renderShippingCoverTable(TABLES.find(t => t.type === 'shipping_cover'))
-                : renderSimpleTable(TABLES.find(t => t.type === activeTable))
-            )}
+          <div className="packing-chart-legend" aria-label="Chart series">
+            {TABLES.map(table => <span key={table.type}><i style={{ backgroundColor: table.color }} />{table.title}</span>)}
+          </div>
+          <div className="packing-chart-canvas">
+            {loadingHistory ? <div className="packing-chart-empty">Loading history...</div> : chartData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 16, right: 24, left: 0, bottom: 12 }}>
+                  <CartesianGrid vertical={false} stroke="#bacde04d" strokeDasharray="3 3" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} tick={{ fontSize: 11, fill: "#71869e" }} tickFormatter={value => `${value.slice(8, 10)}-${value.slice(5, 7)}`} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} width={48} tick={{ fontSize: 11, fill: "#71869e" }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #d4e1ed", background: "#f8fbff", fontSize: 12 }} labelFormatter={value => value.split("-").reverse().join("-")} formatter={(value, name) => [Number(value).toLocaleString("en-IN"), name]} />
+                  {TABLES.map(table => <Line key={table.type} type="linear" dataKey={table.type} name={table.title} stroke={table.color} strokeWidth={2.5} dot={{ r: 3, fill: table.color, stroke: "#fff", strokeWidth: 1.5 }} activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }} isAnimationActive={false} />)}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : <div className="packing-chart-empty"><TrendingUp size={28} /><span>No upload history yet</span></div>}
           </div>
         </section>
+        <section className="stock-table-panel" aria-label="Packing inventory records">
+          <div className="stock-table-toolbar">
+            <div className="stock-table-tabs packing-table-tabs" role="group" aria-label="Packing material tables">
+              {TABLES.map(table => <button key={table.type} aria-pressed={activeTab === table.type} onClick={() => setActiveTab(table.type)}><i style={{ backgroundColor: table.color }} />{table.title}</button>)}
+            </div>
+            <div className="stock-table-controls">
+              <label className="stock-search"><Search size={16} /><input type="search" aria-label="Search packing inventory" placeholder="Search items..." value={searchFilter} onChange={e => setSearchFilter(e.target.value)} /></label>
+              <button onClick={loadRows} disabled={loading} className="stock-refresh-button" aria-label="Refresh packing inventory"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+              <button onClick={downloadAllTables} disabled={downloading || loading} className="stock-export-button"><Download size={15} />{downloading ? "Exporting..." : "Export Excel"}</button>
+            </div>
+          </div>
+          {loading ? <div className="packing-chart-empty">Loading inventory...</div> : renderTable(TABLES.find(table => table.type === activeTab))}
+        </section>
       </main>
+
+      {/* Preview Modal */}
+      {previewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center glass/40 backdrop-blur-sm p-4">
+          <div className="stock-preview-modal w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 glass">
+              <h3 className="font-black text-slate-800">Preview Excel File (Top 10 rows)</h3>
+              <button aria-label="Close packing preview" onClick={() => setPreviewModal(false)} className="text-slate-800 font-medium hover:text-slate-800 font-medium"><X size={20}/></button>
+            </div>
+            <div className="flex-1 overflow-auto p-4" data-lenis-prevent>
+               {previewData.length > 0 ? (
+                 <table className="glass-table stock-data-table">
+                   <thead>
+                     <tr>
+                       {Object.keys(previewData[0]).map(k => (
+                         <th key={k} className="py-2 px-3 font-bold">{k}</th>
+                       ))}
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {previewData.map((row, i) => (
+                       <tr key={i} className="border-b border-slate-100 hover:glass">
+                         {Object.values(row).map((v, j) => (
+                           <td key={j} className="py-2 px-3 text-slate-700">{v}</td>
+                         ))}
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               ) : (
+                 <p className="text-slate-800 font-medium text-center py-8">No data found in this file.</p>
+               )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 glass flex justify-end gap-3">
+               <button onClick={() => setPreviewModal(false)} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-800 font-medium hover:glass">Cancel</button>
+               <button onClick={submitUpload} disabled={uploading || !previewData.length} className="px-4 py-2 rounded-xl text-sm font-bold bg-[#0F2137] text-white hover:bg-[#1E3A66] disabled:opacity-50">{uploading ? 'Uploading...' : 'Confirm Upload'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

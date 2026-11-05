@@ -1,0 +1,25 @@
+.low-stock-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.low-stock-tabs button { display: inline-flex; align-items: center; gap: 8px; }
+.low-stock-tabs button > span { min-width: 22px; padding: 2px 5px; border-radius: 6px; background: #dce7f380; font-size: 10px; font-variant-numeric: tabular-nums; }
+.low-stock-page .stock-search input { width: 210px; }
+.low-stock-reset { color: #b85565; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.low-stock-table-panel { border: 1px solid #ffffffd6; border-radius: 14px; background: linear-gradient(125deg, #ffffff52, #e9f2fa40); box-shadow: 0 4px 18px #29496708; overflow: hidden; }
+.low-stock-table-caption { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; gap: 12px; }
+.low-stock-table-caption h2 { color: #294967; font-size: 14px; font-weight: 600; }
+.low-stock-table-caption > span { color: #8397ad; font-size: 11px; }
+.low-stock-table-scroll { max-height: 600px; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.low-stock-data-table.glass-table { min-width: 580px; }
+.low-stock-data-table.glass-table th:first-child { width: 35%; }
+.low-stock-data-table.glass-table th:last-child, .low-stock-data-table.glass-table td:last-child { width: 190px; min-width: 190px; text-align: right; font-variant-numeric: tabular-nums; }
+.low-stock-quantity { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; padding: 4px 9px; border: 1px solid #e9d8b3; border-radius: 7px; background: #fff6e5b3; color: #a66b20; font-size: 12px; font-weight: 700; }
+.low-stock-quantity[data-empty="true"] { border-color: #edc6cd; background: #fcecf0b3; color: #bd465b; }
+.low-stock-total { position: sticky; bottom: 0; z-index: 2; }
+.low-stock-error { padding: 12px 15px; margin-bottom: 12px; border: 1px solid #edc6cd; border-radius: 10px; background: #fcecf0b3; color: #bd465b; font-size: 12px; }
+@media (max-width: 600px) {
+  .low-stock-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .low-stock-kpis .dashboard-stat:first-child { grid-column: 1 / -1; }
+  .low-stock-tabs { width: 100%; }
+  .low-stock-tabs button { flex: 1; justify-content: center; padding: 9px 8px; font-size: 11px; gap: 6px; }
+  .low-stock-page .stock-search input { width: 100%; }
+  .low-stock-table-scroll { max-height: 450px; }
+}

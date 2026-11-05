@@ -1,0 +1,155 @@
+.sales-analytics-neumorphic,
+.workspace-route-content:has(> .sales-analytics-neumorphic),
+.workspace-route-content:has(> .sales-analytics-neumorphic) + .workspace-navigation-position {
+  --neu-surface: #e8edf3;
+  --neu-shadow: #c5cdd8;
+  --neu-highlight: #ffffff;
+  --neu-ink: #243e5b;
+  --neu-muted: #62758b;
+}
+
+.workspace-route-content:has(> .sales-analytics-neumorphic),
+.workspace-route-content > .sales-analytics-neumorphic {
+  background: var(--neu-surface);
+}
+.sales-analytics-neumorphic { background: var(--neu-surface); color: var(--neu-ink); }
+.sales-analytics-neumorphic .analytics-page-header {
+  background: var(--neu-surface);
+  border: 0;
+  backdrop-filter: none;
+  box-shadow: 0 7px 14px -12px #9daec3;
+}
+.sales-analytics-neumorphic .analytics-header-inner { padding-top: 26px; padding-bottom: 26px; }
+.sales-analytics-neumorphic .analytics-heading h1 > svg {
+  padding: 10px;
+  background: var(--neu-surface);
+  border-radius: 13px;
+  color: var(--neu-ink);
+  box-shadow: 4px 4px 9px var(--neu-shadow), -4px -4px 9px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-heading p,
+.sales-analytics-neumorphic .analytics-card-description { color: var(--neu-muted); }
+.sales-analytics-neumorphic .analytics-back-link,
+.sales-analytics-neumorphic .analytics-apply-button {
+  background: var(--neu-surface);
+  border: 0;
+  border-radius: 11px;
+  color: var(--neu-ink);
+  box-shadow: 5px 5px 11px var(--neu-shadow), -5px -5px 11px var(--neu-highlight);
+  transition: box-shadow .2s, color .2s;
+}
+.sales-analytics-neumorphic .analytics-back-link { padding: 11px 14px; }
+.sales-analytics-neumorphic .analytics-apply-button { font-weight: 700; }
+.sales-analytics-neumorphic .analytics-back-link:hover,
+.sales-analytics-neumorphic .analytics-apply-button:hover {
+  background: var(--neu-surface);
+  box-shadow: 3px 3px 7px var(--neu-shadow), -3px -3px 7px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-back-link:active,
+.sales-analytics-neumorphic .analytics-apply-button:active {
+  box-shadow: inset 3px 3px 7px var(--neu-shadow), inset -3px -3px 7px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-page-main { padding-top: 30px; }
+.sales-analytics-neumorphic .analytics-filter-panel {
+  padding: 26px;
+  margin-bottom: 32px;
+  background: var(--neu-surface);
+  border: 0;
+  border-radius: 20px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 9px 9px 21px var(--neu-shadow), -9px -9px 21px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-filter-controls { gap: 22px; }
+.sales-analytics-neumorphic .analytics-filter-controls label { color: var(--neu-muted); margin-bottom: 12px; }
+.sales-analytics-neumorphic .analytics-filter-input {
+  background: var(--neu-surface);
+  border: 0;
+  border-radius: 11px;
+  color: var(--neu-ink);
+  height: 46px;
+  box-shadow: inset 4px 4px 8px var(--neu-shadow), inset -4px -4px 8px var(--neu-highlight);
+  transition: box-shadow .2s;
+}
+.sales-analytics-neumorphic .analytics-filter-input:hover,
+.sales-analytics-neumorphic .analytics-filter-input:focus { background: var(--neu-surface); }
+.sales-analytics-neumorphic .analytics-filter-input:focus {
+  box-shadow: inset 5px 5px 10px var(--neu-shadow), inset -5px -5px 10px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-filter-controls .analytics-apply-button { height: 46px; }
+.sales-analytics-neumorphic .analytics-filter-input option { background: var(--neu-surface); color: var(--neu-ink); }
+.sales-analytics-neumorphic .analytics-report-grid { gap: 30px; }
+.sales-analytics-neumorphic .analytics-report-card {
+  min-height: 216px;
+  padding: 26px;
+  background: var(--neu-surface);
+  border: 0;
+  border-radius: 22px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 10px 10px 23px var(--neu-shadow), -10px -10px 23px var(--neu-highlight);
+  transition: box-shadow .22s;
+}
+.sales-analytics-neumorphic .analytics-report-card:hover {
+  background: var(--neu-surface);
+  transform: none;
+  box-shadow: 6px 6px 15px var(--neu-shadow), -6px -6px 15px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-report-card:active {
+  box-shadow: inset 6px 6px 13px var(--neu-shadow), inset -6px -6px 13px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-report-icon {
+  background: var(--neu-surface);
+  color: var(--report-deep);
+  border-radius: 13px;
+  box-shadow: inset 3px 3px 6px var(--neu-shadow), inset -3px -3px 6px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-card-title { color: var(--neu-ink); }
+.sales-analytics-neumorphic .analytics-record-count {
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: var(--neu-surface);
+  color: var(--neu-muted);
+  box-shadow: inset 2px 2px 4px var(--neu-shadow), inset -2px -2px 4px var(--neu-highlight);
+}
+.sales-analytics-neumorphic .analytics-record-count strong { color: var(--neu-ink); font-size: 17px; }
+.sales-analytics-neumorphic .analytics-card-arrow {
+  box-sizing: content-box;
+  padding: 8px;
+  border-radius: 50%;
+  background: var(--neu-surface);
+  color: var(--neu-muted);
+  box-shadow: 3px 3px 7px var(--neu-shadow), -3px -3px 7px var(--neu-highlight);
+  transition: box-shadow .2s;
+}
+.sales-analytics-neumorphic .analytics-report-card:hover .analytics-card-arrow {
+  color: var(--neu-ink);
+  transform: none;
+  box-shadow: inset 2px 2px 5px var(--neu-shadow), inset -2px -2px 5px var(--neu-highlight);
+}
+.workspace-route-content:has(> .sales-analytics-neumorphic) + .workspace-navigation-position .workspace-navigation {
+  background: var(--neu-surface);
+  border: 0;
+  box-shadow: 7px 7px 18px var(--neu-shadow), -7px -7px 18px var(--neu-highlight);
+}
+.workspace-route-content:has(> .sales-analytics-neumorphic) + .workspace-navigation-position .workspace-navigation-item:hover,
+.workspace-route-content:has(> .sales-analytics-neumorphic) + .workspace-navigation-position .workspace-navigation-item.is-active {
+  background: var(--neu-surface);
+  box-shadow: inset 3px 3px 7px var(--neu-shadow), inset -3px -3px 7px var(--neu-highlight);
+}
+@media (max-width: 640px) {
+  .sales-analytics-neumorphic .analytics-header-inner { padding: 20px 16px; }
+  .sales-analytics-neumorphic .analytics-back-link { padding: 10px 8px; }
+  .sales-analytics-neumorphic .analytics-page-main { padding-top: 22px; }
+  .sales-analytics-neumorphic .analytics-filter-panel { padding: 20px 16px; margin-bottom: 26px; }
+  .sales-analytics-neumorphic .analytics-filter-controls { gap: 16px; }
+  .sales-analytics-neumorphic .analytics-report-grid { gap: 24px; }
+  .sales-analytics-neumorphic .analytics-report-card { padding: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sales-analytics-neumorphic .analytics-report-card,
+  .sales-analytics-neumorphic .analytics-card-arrow,
+  .sales-analytics-neumorphic .analytics-back-link,
+  .sales-analytics-neumorphic .analytics-apply-button,
+  .sales-analytics-neumorphic .analytics-filter-input { transition: none; }
+}

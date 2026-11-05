@@ -1,0 +1,22 @@
+.packing-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(290px, 1.1fr); }
+.packing-chart-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 18px 0 8px; }
+.packing-chart-legend span { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #5e7691; }
+.packing-chart-legend i { display: inline-block; height: 3px; width: 19px; border-radius: 4px; }
+.packing-chart-canvas { height: 310px; width: 100%; min-width: 0; }
+.packing-chart-empty { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font-size: 13px; color: #8397ad; }
+.packing-table-tabs { flex-wrap: wrap; }
+.packing-table-tabs button { display: flex; align-items: center; gap: 7px; }
+.packing-table-tabs i, .packing-item-name > span { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.packing-table-caption { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; }
+.packing-table-caption h2 { font-size: 14px; font-weight: 600; color: #294967; }
+.packing-table-caption > span { font-size: 11px; color: #8397ad; }
+.packing-table-section { border: 1px solid #ffffffd6; border-radius: 14px; background: linear-gradient(125deg, #ffffff52, #e9f2fa40); box-shadow: 0 4px 18px #29496708; overflow: hidden; }
+.packing-table-scroll { max-height: 540px; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.packing-data-table.glass-table { min-width: 360px; }
+.packing-data-table thead { position: sticky; top: 0; z-index: 2; }
+.packing-data-table tfoot { position: sticky; bottom: 0; z-index: 1; }
+.packing-data-table.glass-table th:last-child, .packing-data-table.glass-table td:last-child { text-align: right; width: 160px; font-variant-numeric: tabular-nums; }
+.packing-item-name { display: inline-flex; align-items: center; gap: 10px; }
+.packing-data-table.glass-table .packing-empty { text-align: center; padding: 30px; }
+@media (max-width: 1200px) { .packing-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .packing-kpi-grid > .stock-import-panel { grid-column: 1 / -1; } }
+@media (max-width: 600px) { .packing-chart-canvas { height: 280px; } .packing-chart-legend { gap: 12px 16px; } .packing-chart-legend span { font-size: 11px; } .packing-table-tabs { display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .packing-table-tabs button { padding: 9px 10px; font-size: 11px; } }

@@ -1,3 +1,7 @@
+import "../dashboard.css";
+import "../stock-inventory.css";
+import "../sku-master.css";
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
@@ -13,6 +17,9 @@ import {
   Database,
   FileSpreadsheet,
   Download,
+  Tag,
+  Check,
+  ChevronRight,
 } from "lucide-react";
 import { API_BASE } from "../api.js";
 import ExcelHeaderFilter from "../components/ExcelHeaderFilter.jsx";
@@ -32,6 +39,7 @@ export default function SkuMasterPage() {
   const [editingKey, setEditingKey] = useState(null);
   const [draftRow, setDraftRow] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [savingKey, setSavingKey] = useState(null);
   const [activeSkuMaster, setActiveSkuMaster] = useState(null);
   const [uploadFile, setUploadFile] = useState(null);
@@ -46,6 +54,7 @@ export default function SkuMasterPage() {
 
   const loadRows = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const [rowsRes, currentRes] = await Promise.all([
         axios.get(`${API_BASE}/sku-master/rows`),
@@ -56,6 +65,7 @@ export default function SkuMasterPage() {
       setActiveSkuMaster(currentRes.data?.filename || null);
     } catch (error) {
       console.error(error);
+      setLoadError("Unable to load the SKU master. Please reload this page to try again.");
     } finally {
       setLoading(false);
     }
@@ -153,6 +163,14 @@ export default function SkuMasterPage() {
     return vals;
   }, [rows, columns]);
 
+  const uniqueColors = useMemo(() => {
+    const colors = new Set();
+    rows.forEach(r => {
+      if (r.pieces) r.pieces.forEach(p => p.color && colors.add(p.color));
+    });
+    return Array.from(colors).sort();
+  }, [rows]);
+
   const visibleRows = useMemo(() => {
     let list = [...rows];
 
@@ -212,6 +230,9 @@ export default function SkuMasterPage() {
     const newRow = { ...EMPTY_ROW, pieces: [...EMPTY_ROW.pieces], _key: `new-${Date.now()}` };
     setRows((items) => [newRow, ...items]);
     setSearch("");
+    setColumnFilters({});
+    setSortField("sku");
+    setSortAsc(true);
     setPage(1);
     startEdit(newRow);
   };
@@ -291,14 +312,23 @@ export default function SkuMasterPage() {
   const renderTextCell = (row, field) => {
     if (editingKey === rowKey(row) && draftRow) {
       return (
-        <input
+        <>
+            <input
+            list={`datalist-${field}-${row._key || row.id}`}
+          aria-label={`Edit ${field.replace(/_/g, " ")}`}
           value={draftRow[field] || ""}
           onChange={(event) => updateDraftRow(field, event.target.value)}
-          className="w-full min-w-24 rounded border border-[#0F2137] bg-white px-2.5 py-1 text-xs outline-none focus:border-[#0F2137]"
+          className="w-full min-w-24 rounded border border-[#0F2137] glass px-2.5 py-1 text-xs outline-none focus:border-[#0F2137]"
         />
+            <datalist id={`datalist-${field}-${row._key || row.id}`}>
+              {(uniqueValues[field] || []).map((val) => (
+                <option key={String(val)} value={String(val)} />
+              ))}
+            </datalist>
+          </>
       );
     }
-    return <span className="whitespace-nowrap font-medium">{row[field] || "-"}</span>;
+    return <span className={field === "sku" ? "sku-code" : "sku-cell-value"}>{row[field] || "-"}</span>;
   };
 
   const renderPiecesCell = (row) => {
@@ -307,12 +337,13 @@ export default function SkuMasterPage() {
         <div className="space-y-2">
           {(draftRow.pieces || []).map((piece, index) => (
             <div key={piece.id || index} className="flex items-center gap-2">
-              <input
+              <input list={`datalist-draft-color-${piece.id || index}`}
                 value={piece.color || ""}
                 onChange={(event) => updateDraftPiece(index, "color", event.target.value)}
                 placeholder="Color"
                 className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
               />
+                <datalist id={`datalist-draft-color-${piece.id || index}`}>{uniqueColors.map(c => <option key={c} value={c} />)}</datalist>
               <input
                 type="number"
                 min="1"
@@ -335,7 +366,7 @@ export default function SkuMasterPage() {
     return (
       <div className="flex flex-wrap gap-1.5">
         {(row.pieces || []).length ? row.pieces.map((piece) => (
-          <span key={piece.id || `${piece.color}-${piece.qty}`} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
+          <span key={piece.id || `${piece.color}-${piece.qty}`} className="rounded border border-slate-200 glass px-2 py-0.5 text-xs font-medium text-slate-700">
             {piece.color} x {piece.qty}
           </span>
         )) : "-"}
@@ -347,11 +378,17 @@ export default function SkuMasterPage() {
     if (editingKey === rowKey(row) && draftRow) {
       const val = draftRow.pieces?.[index]?.color || "";
       return (
-        <input
+        <>
+            <input
+            list={`datalist-color-${row._key || row.id}-${index}`}
           value={val}
           onChange={(event) => updateDraftPiece(index, "color", event.target.value)}
-          className="w-full min-w-16 rounded border border-[#0F2137] bg-white px-2 py-1 text-xs outline-none focus:border-[#0F2137]"
+          className="w-full min-w-16 rounded border border-[#0F2137] glass px-2 py-1 text-xs outline-none focus:border-[#0F2137]"
         />
+            <datalist id={`datalist-color-${row._key || row.id}-${index}`}>
+              {uniqueColors.map(c => <option key={c} value={c} />)}
+            </datalist>
+          </>
       );
     }
     return <span className="whitespace-nowrap font-medium">{row.pieces?.[index]?.color || "-"}</span>;
@@ -364,11 +401,11 @@ export default function SkuMasterPage() {
 
     if (isEditing) {
       return (
-        <div className="flex justify-end gap-1">
-          <button type="button" title="Cancel" onClick={cancelEdit} disabled={isSaving} className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+        <div className="sku-row-actions">
+          <button type="button" title="Cancel" aria-label="Cancel" onClick={cancelEdit} disabled={isSaving} className="rounded-lg p-1.5 text-slate-800 font-medium hover:glass disabled:opacity-50">
             <X size={16} />
           </button>
-          <button type="button" title="Save" onClick={saveRow} disabled={isSaving} className="rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+          <button type="button" title="Save" aria-label="Save" onClick={saveRow} disabled={isSaving} className="rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
             <Save size={16} />
           </button>
         </div>
@@ -376,11 +413,11 @@ export default function SkuMasterPage() {
     }
 
     return (
-      <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        <button type="button" title="Edit SKU" onClick={() => startEdit(row)} disabled={Boolean(editingKey) || isSaving} className="rounded p-1 text-[#0F2137] hover:bg-slate-100 disabled:opacity-40">
+      <div className="sku-row-actions">
+        <button type="button" title="Edit SKU" aria-label="Edit SKU" onClick={() => startEdit(row)} disabled={Boolean(editingKey) || isSaving} className="rounded p-1 text-[#0F2137] hover:glass disabled:opacity-40">
           <Edit3 size={15} />
         </button>
-        <button type="button" title="Delete SKU" onClick={() => removeRow(row)} disabled={Boolean(editingKey) || isSaving} className="rounded p-1 text-rose-600 hover:bg-rose-50 disabled:opacity-40">
+        <button type="button" title="Delete SKU" aria-label="Delete SKU" onClick={() => removeRow(row)} disabled={Boolean(editingKey) || isSaving} className="rounded p-1 text-rose-600 hover:bg-rose-50 disabled:opacity-40">
           <Trash2 size={15} />
         </button>
       </div>
@@ -389,215 +426,114 @@ export default function SkuMasterPage() {
 
   const clearAllFilters = () => {
     setColumnFilters({});
+    setSearch("");
+    setPage(1);
   };
 
   const hasActiveFilters = Boolean(search || Object.values(columnFilters).some(arr => arr && arr.length > 0));
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
-      {/* Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="mx-auto flex max-w-[98%] flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/#inventory"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
-            >
-              <ChevronLeft size={16} />
-              Inventory
-            </Link>
-            <div>
-              <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Database size={20} className="text-[#0F2137]" />
-                SKU Master Dictionary
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">{rows.length} SKU records in dictionary</p>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              disabled={rows.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-40 transition"
-            >
-              <Download size={14} />
-              Export Master (CSV)
-            </button>
-
-            {activeSkuMaster && (
-              <button
-                type="button"
-                onClick={handleDeleteMasterDatabase}
-                disabled={deletingMaster}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition shadow-xs"
-              >
-                <Trash2 size={14} />
-                {deletingMaster ? "Deleting..." : "Delete Master Database"}
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={addRow}
-              disabled={Boolean(editingKey)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-2 text-xs font-bold text-white hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50 transition shadow-sm"
-            >
-              <Plus size={15} />
-              Add SKU
-            </button>
-          </div>
+    <div className="stock-inventory-page sku-master-page">
+      <WorkspaceTopBar>
+        <div className="stock-page-heading">
+          <Link to="/#inventory" className="stock-back-link" aria-label="Back to Inventory"><ChevronLeft size={18} /></Link>
+          <span className="stock-page-icon"><Database size={20} /></span>
+          <div><h1>SKU Master</h1><p>Product codes &amp; marketplace mappings</p></div>
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="mx-auto max-w-[98%] px-6 py-6 space-y-4">
-        {/* Conditional Active Database Status or Upload Dropzone */}
-        {activeSkuMaster ? (
-          <div className="bg-white p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700 border border-emerald-200">
-                <FileSpreadsheet size={20} />
+      </WorkspaceTopBar>
+      <main className="stock-page-content">
+        <section className="stock-kpi-grid sku-master-overview" aria-label="SKU master overview">
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>SKU records</span><span className="dashboard-icon"><Database size={21} /></span></div>
+            <strong>{loading ? "..." : rows.length.toLocaleString("en-IN")}</strong><p>Records in the master dictionary</p>
+          </article>
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Product styles</span><span className="dashboard-icon blue"><Tag size={21} /></span></div>
+            <strong>{loading ? "..." : new Set(rows.map(row => row.style).filter(Boolean)).size.toLocaleString("en-IN")}</strong><p>Distinct styles in the dictionary</p>
+          </article>
+          {activeSkuMaster ? (
+            <section className="stock-import-panel sku-database-card" aria-label="Active master database">
+              <div className="stock-import-heading"><span className="stock-import-icon"><FileSpreadsheet size={18} /></span><h2>Master spreadsheet</h2><span className="sku-database-status"><Check size={11} /> Active</span></div>
+              <strong className="sku-database-name" title={activeSkuMaster}>{activeSkuMaster}</strong>
+              <p className="sku-database-description">Current source for SKU mappings</p>
+              <button type="button" onClick={handleDeleteMasterDatabase} disabled={deletingMaster || Boolean(editingKey) || loading} className="sku-delete-master"><Trash2 size={13} />{deletingMaster ? "Deleting..." : "Delete master database"}</button>
+            </section>
+          ) : (
+            <section className="stock-import-panel" aria-labelledby="sku-upload-title">
+              <div className="stock-import-heading"><span className="stock-import-icon"><Upload size={18} /></span><h2 id="sku-upload-title">Upload SKU master</h2><span className="stock-file-status">{uploadFile ? "File ready" : "Excel / CSV"}</span></div>
+              <div className="stock-upload-field" data-ready={!!uploadFile}>
+                <label className="stock-upload-label">
+                  <input type="file" accept=".csv,.xlsx,.xls" className="stock-file-input" aria-label="Choose SKU master spreadsheet" disabled={uploading || loading || !!uploadFile} onChange={e => { setUploadFile(e.target.files?.[0] || null); e.target.value = ""; }} />
+                  <span className="stock-file-icon"><FileSpreadsheet size={30} /></span>
+                  <strong title={uploadFile?.name}>{uploadFile ? uploadFile.name : "Choose master spreadsheet"}</strong><span>{uploadFile ? "Ready to upload" : "XLSX, XLS or CSV"}</span>
+                </label>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Active Database File:</span>
-                  <span className="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-extrabold">
-                    Active
-                  </span>
-                </div>
-                <p className="text-sm font-bold text-slate-900 font-mono mt-0.5">
-                  {activeSkuMaster}
-                </p>
+              <div className="stock-import-footer">
+                <button type="button" className="stock-clear-button" onClick={() => setUploadFile(null)} disabled={!uploadFile || uploading}><Trash2 size={14} /> Clear file</button>
+                <button type="button" className="stock-preview-button" onClick={handleUploadSkuMaster} disabled={!uploadFile || uploading || loading}><Upload size={14} />{uploading ? "Uploading..." : "Upload master"}</button>
               </div>
+            </section>
+          )}
+        </section>
+        {loadError && <div className="sku-load-error" role="alert">{loadError}</div>}
+        <section className="stock-table-panel" aria-label="SKU master records">
+          <div className="stock-table-toolbar">
+            <label className="stock-search sku-search"><Search size={16} /><input type="search" aria-label="Search SKU master" value={search} onChange={event => updateSearch(event.target.value)} placeholder="Search SKU, style, color, size..." /></label>
+            <div className="stock-table-controls">
+              {hasActiveFilters && <button type="button" onClick={clearAllFilters} className="sku-reset-filters">Reset filters</button>}
+              <button type="button" onClick={handleExportCsv} disabled={rows.length === 0 || loading} className="stock-export-button"><Download size={14} /> Export CSV</button>
+              <button type="button" onClick={addRow} disabled={Boolean(editingKey) || loading || uploading || deletingMaster} className="sku-add-button"><Plus size={15} /> Add SKU</button>
             </div>
           </div>
-        ) : (
-          <div className="bg-white p-5 shadow-sm flex flex-wrap items-center justify-between gap-4 border-2 border-dashed border-slate-300">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10 text-[#0F2137] border border-[#0F2137]/20">
-                <Upload size={20} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Database Status:</span>
-                  <span className="rounded bg-amber-100 text-amber-900 px-2 py-0.5 text-[10px] font-extrabold">
-                    No Database Loaded
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Upload an Excel/CSV spreadsheet to populate master SKU mappings.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="cursor-pointer rounded-lg border border-slate-300/80 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs">
-                <input
-                  type="file"
-                  accept=".csv, .xlsx, .xls"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  className="hidden"
-                />
-                <span className="truncate max-w-[200px] inline-block">
-                  {uploadFile ? uploadFile.name : "Select Spreadsheet File"}
-                </span>
-              </label>
-
-              <button
-                type="button"
-                onClick={handleUploadSkuMaster}
-                disabled={!uploadFile || uploading}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F2137] px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-40 transition shadow-xs"
-              >
-                <Upload size={14} />
-                {uploading ? "Uploading..." : "Upload Spreadsheet"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(rows.length > 0 || loading) && (
-          <>
-          {/* Search Bar & Stats */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex max-w-md items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/80 px-3.5 py-2 shadow-xs backdrop-blur-md flex-1">
-            <Search size={16} className="text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => updateSearch(event.target.value)}
-              placeholder="Search SKU, style, color, size..."
-              className="w-full bg-transparent text-xs font-medium outline-none text-slate-800 placeholder-slate-400"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="text-xs font-bold text-rose-600 hover:text-rose-800"
-              >
-                Reset Column Filters
-              </button>
-            )}
-            <span className="rounded-xl bg-white/90 border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs">
-              Showing {visibleRows.length} of {rows.length} records
-            </span>
-          </div>
-        </div>
-
-        {/* Clean Modern Square Table Container */}
-        <section className="bg-white shadow-sm overflow-hidden">
-          <div className="max-h-[calc(100vh-320px)] overflow-auto">
-            <table className="min-w-full text-left text-sm border-none">
-              <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
+          <div className="sku-table-panel">
+            <div className="sku-table-caption"><h2>SKU dictionary</h2><span>{visibleRows.length.toLocaleString("en-IN")} / {rows.length.toLocaleString("en-IN")} records</span></div>
+            <div className="sku-table-scroll" data-lenis-prevent tabIndex={0} aria-label="Scrollable SKU master table">
+            <table className="glass-table stock-data-table sku-data-table">
+              <thead className="sticky top-0 z-10 glass/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
                 <tr>
                   {columns.map(col => (
-                    <th key={col} className="px-4 py-3 min-w-[110px]">
-                      <ExcelHeaderFilter 
-                        label={col.replace(/_/g, " ").toUpperCase()} 
-                        columnKey={col} 
-                        values={uniqueValues[col] || []} 
-                        selectedValues={columnFilters[col] || []} 
-                        onFilterChange={(vals) => setColumnFilters(prev => ({...prev, [col]: vals}))} 
-                        sortField={sortField} 
-                        sortAsc={sortAsc} 
-                        onSort={handleSort} 
-                        align="left" 
+                    <th key={col} className={col === "sku" ? "sku-code-column" : ""}>
+                      <ExcelHeaderFilter
+                        label={col === "sku" ? "SKU" : col.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")}
+                        columnKey={col}
+                        values={uniqueValues[col] || []}
+                        selectedValues={columnFilters[col] || []}
+                        onFilterChange={(vals) => setColumnFilters(prev => ({...prev, [col]: vals}))}
+                        sortField={sortField}
+                        sortAsc={sortAsc}
+                        onSort={handleSort}
+                        align="left"
                       />
                     </th>
                   ))}
-                  <th className="w-20 px-4 py-3 text-center font-bold text-slate-600">Action</th>
+                  <th className="sku-actions-column">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center text-slate-500 font-medium">
+                    <td colSpan={columns.length + 1} className="p-12 text-center text-slate-800 font-medium font-medium">
                       Loading SKU data...
                     </td>
                   </tr>
                 ) : pagedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center text-slate-500 font-medium">
-                      No SKU records match the current filters.
+                    <td colSpan={columns.length + 1} className="p-12 text-center text-slate-800 font-medium font-medium">
+                      {rows.length ? "No SKU records match the current filters." : "No SKU records yet. Upload a master spreadsheet or add a SKU."}
                     </td>
                   </tr>
                 ) : (
                   pagedRows.map((row) => (
                     <tr
                       key={rowKey(row)}
-                      className="group hover:bg-slate-50/80 transition"
+                      className="sku-data-row" data-editing={editingKey === rowKey(row)}
                     >
                       {columns.map(col => (
                         <td key={col} className="px-4 py-3 font-medium text-slate-700">
                           {renderTextCell(row, col)}
                         </td>
                       ))}
-                      <td className="px-4 py-3 text-center">{renderActionsCell(row)}</td>
+                      <td className="sku-actions-column">{renderActionsCell(row)}</td>
                     </tr>
                   ))
                 )}
@@ -607,32 +543,30 @@ export default function SkuMasterPage() {
 
           {/* Pagination */}
           {pageCount > 1 && (
-            <div className="flex items-center justify-between border-t border-slate-200 px-6 py-3 bg-slate-50 text-xs text-slate-600 font-medium">
+            <div className="sku-pagination">
               <span>Page {effectivePage} of {pageCount} ({visibleRows.length} total)</span>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={effectivePage === 1}
-                  className="rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold disabled:opacity-40 hover:bg-slate-50 shadow-xs"
+                  className="sku-pagination-button"
                 >
-                  Previous
+                  <ChevronLeft size={14} /> Previous
                 </button>
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                   disabled={effectivePage === pageCount}
-                  className="rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold disabled:opacity-40 hover:bg-slate-50 shadow-xs"
+                  className="sku-pagination-button"
                 >
-                  Next
+                  Next <ChevronRight size={14} />
                 </button>
               </div>
             </div>
           )}
+          </div>
         </section>
-      
-          </>
-        )}
       </main>
     </div>
   );

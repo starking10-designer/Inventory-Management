@@ -1,0 +1,12 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {MemoryRouter,Routes,Route} from 'react-router-dom';
+import axios from 'axios';
+import './src/index.css';
+import SalesAnalyticsDetailPage from './src/pages/SalesAnalyticsDetailPage.jsx';
+import {WorkspacePageLayout} from './src/components/WorkspaceNavigation.jsx';
+const base=Array.from({length:32},(_,i)=>({style:'Style '+String(i+1).padStart(2,'0'),color:'Navy '+i,main_product_type:'Product '+i,pack_of:2,sizes:{M:1},platforms:{Amazon:1},total:1}));
+const data={sizes:['M'],platforms:['Amazon'],platform_wise:base,style_wise:base,color_wise:base,style_color_wise:base,combo_pack_wise:base,sales_wise:base.map((_,i)=>({date:'2026-10-'+String(i%14+1).padStart(2,'0'),platforms:{Amazon:{orders:1,pieces:1,amount:10}}}))};
+axios.get=async()=>({data});
+const type=new URLSearchParams(location.search).get('report')||'platform-wise';
+createRoot(document.getElementById('root')).render(<MemoryRouter initialEntries={['/sales-analytics-report/'+type]}><Routes><Route element={<WorkspacePageLayout/>}><Route path="/sales-analytics-report/:reportType" element={<SalesAnalyticsDetailPage/>}/></Route></Routes></MemoryRouter>);

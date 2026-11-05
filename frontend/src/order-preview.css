@@ -1,0 +1,247 @@
+.order-preview {
+  --report-header: var(--glass-table-header);
+  --report-subtotal: var(--report-grand-total);
+  --report-grand-total: var(--glass-table-total);
+}
+
+.order-preview .report-table-scroll {
+  margin: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  scrollbar-gutter: stable;
+}
+
+.order-preview .glass-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: var(--glass-table-surface);
+  font-style: normal;
+  font-family: "Segoe UI", Arial, sans-serif;
+  border: 0;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.order-preview .glass-table thead {
+  background: var(--report-header);
+  color: #f8fafc;
+  backdrop-filter: none;
+  box-shadow: 0 4px 10px #142c491a;
+}
+
+.order-preview .glass-table th {
+  padding: 12px 18px;
+  background: var(--report-header);
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  text-transform: none;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid #ffffff24;
+}
+
+.order-preview .glass-table th button:not(.text-blue-600):not(.text-rose-600) {
+  color: #c6d3e2;
+}
+
+.order-preview .glass-table td,
+.order-preview .glass-table tr:hover td {
+  padding: 12px 18px;
+  color: #334155;
+  font-size: 15px;
+  font-weight: 500;
+  font-style: normal;
+  border-bottom: 1px solid #e1e9f270;
+  background: var(--glass-table-row);
+  box-shadow: none;
+  transition: none;
+}
+
+.order-preview .glass-table tbody tr { background: transparent; }
+.order-preview .glass-table tbody tr:where(:nth-child(even)):where(:not(.report-subtotal, .report-grand-total)) td,
+.order-preview .glass-table tbody tr:where(:nth-child(even)):where(:not(.report-subtotal, .report-grand-total)):hover td { background: var(--glass-table-stripe); }
+.order-preview .report-data-row td:first-child { color: #172b45; font-weight: 600; }
+.order-preview .report-color-label { color: #52647a; font-size: 14px; }
+.order-preview .report-empty-value { color: #a3afbe; }
+.order-preview .report-total-value { color: #142c49; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.order-preview .glass-table th:last-child,
+.order-preview .glass-table td:last-child,
+.order-preview .report-detail-table th:nth-child(n + 3),
+.order-preview .report-detail-table td:nth-child(n + 3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.order-preview .glass-table td:last-child,
+.order-preview .glass-table tr:hover td:last-child {
+  color: #142c49;
+  font-weight: 700;
+}
+
+.order-preview .report-detail-table th:last-child,
+.order-preview .report-detail-table td:last-child {
+  width: 112px;
+  white-space: nowrap;
+}
+
+.order-preview .order-preview-detailed th:first-child,
+.order-preview .order-preview-detailed td:first-child { width: 48px; text-align: center; }
+.order-preview .order-preview-detailed td:nth-child(3),
+.order-preview .order-preview-detailed tr:hover td:nth-child(3) { color: #142c49; font-weight: 650; white-space: nowrap; }
+.order-preview .order-preview-detailed td:nth-child(4),
+.order-preview .order-preview-detailed tr:hover td:nth-child(4) { font-size: 13px; overflow-wrap: anywhere; }
+.order-preview .order-preview-detailed td:nth-child(2) span {
+  background: #e7eef8;
+  color: #244569;
+  border: 1px solid #d4e0ef;
+  box-shadow: none;
+  font-style: normal;
+  font-size: 13px;
+}
+.order-preview input[type="checkbox"] { accent-color: #1e3a66; width: 14px; height: 14px; }
+
+.order-preview .glass-table .report-subtotal,
+.order-preview .glass-table .report-subtotal:hover { background: var(--report-subtotal); }
+.order-preview .glass-table .report-subtotal td,
+.order-preview .glass-table .report-subtotal:hover td,
+.order-preview .glass-table .report-subtotal:hover td:last-child { background: var(--report-subtotal); color: #40546d; font-weight: 700; border-top: 1px solid #dfe6ef; border-bottom: 1px solid #dfe6ef; }
+.order-preview .glass-table .report-grand-total,
+.order-preview .glass-table .report-grand-total:hover { background: var(--report-grand-total); }
+.order-preview .glass-table .report-grand-total td { background: var(--report-grand-total); color: #142c49; font-weight: 700; border-bottom: 0; border-top: 2px solid #c0cede; }
+.order-preview .glass-table .report-grand-total:hover td,
+.order-preview .glass-table .report-grand-total:hover td:last-child { background: var(--report-grand-total); color: #142c49; font-weight: 700; }
+.order-preview .report-subtotal .report-total-value,
+.order-preview .report-grand-total .report-total-value { color: #142c49; }
+.order-preview .glass-table .report-grand-total td { letter-spacing: .01em; text-transform: none; }
+
+.order-preview .order-preview-filter {
+  background: #fff;
+  color: #334155;
+  backdrop-filter: none;
+  text-align: left;
+  font-style: normal;
+}
+.order-preview .glass-table th .order-preview-filter button { color: #be123c; }
+
+@media (max-width: 640px) {
+  .order-preview .glass-table th,
+  .order-preview .glass-table td,
+  .order-preview .glass-table tr:hover td { padding: 10px; }
+  .order-preview .report-table-scroll { margin: 0; }
+  .order-preview .order-preview-detailed { min-width: 660px; }
+  .order-preview .report-detail-table { min-width: 540px; }
+}
+
+/* Keep the table and its totals above the fixed floating navigation. */
+.daily-orders-theme { height: 100dvh; min-height: 0; }
+.daily-orders-theme, .daily-orders-page,
+.workspace-route-content:has(> .daily-orders-page) { --daily-orders-nav-space: var(--workspace-navigation-space); }
+.daily-orders-theme > .flex-1 { height: 100%; min-height: 0; padding-bottom: var(--daily-orders-nav-space); }
+.daily-orders-page { height: calc(100dvh - var(--daily-orders-nav-space)); min-height: 0; display: flex; flex-direction: column; }
+.workspace-route-content:has(> .daily-orders-page) { padding-bottom: var(--daily-orders-nav-space); }
+.daily-orders-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 24px 0;
+  overflow: hidden;
+}
+.daily-orders-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.daily-final-orders {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-style: normal;
+}
+.daily-final-orders-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; flex-shrink: 0; }
+.daily-final-orders-heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.daily-final-orders-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid #ffffffd9;
+  background: #ffffff7a;
+  color: #203c5c;
+  box-shadow: 0 3px 10px #29496708;
+}
+.daily-final-orders-header h2 { margin: 0; color: #142c49; font-size: 20px; font-style: normal; font-weight: 700; letter-spacing: -.025em; }
+.daily-final-orders-header p { margin-top: 4px; font-size: 12px; line-height: 1.5; font-style: normal; font-weight: 400; color: #63758b; }
+.daily-final-orders-date-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.daily-final-orders-date {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid #ffffffd9;
+  border-radius: 10px;
+  background: #ffffff8c;
+  color: #52647a;
+  font-size: 12px;
+  font-weight: 600;
+}
+.daily-final-orders-date input { min-width: 0; color: #203c5c; font-size: 13px; font-weight: 600; color-scheme: light; }
+.daily-final-orders-delete-date { min-height: 40px; border-radius: 10px; font-style: normal; font-weight: 600; }
+.daily-final-orders-body { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 12px; }
+.daily-final-orders-matrix { display: flex; flex-direction: column; flex: 1; min-height: 160px; gap: 8px; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.daily-final-orders-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 12px;
+  padding: 6px 12px;
+  border: 1px solid #ffffffd9;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #ffffff80, #ffffff40);
+  box-shadow: inset 0 1px 0 #fff;
+}
+.daily-final-orders-platforms { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.daily-final-orders-platforms button { min-height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #5e738d; box-shadow: none; font-size: 12px; font-style: normal; font-weight: 600; }
+.daily-final-orders-platforms button:hover { background: #ffffff80; color: #203c5c; }
+.daily-final-orders-platforms button[aria-pressed="true"] { background: #142c49; color: #fff; box-shadow: 0 2px 5px #142c4914; }
+.daily-final-orders-actions { display: flex; align-items: center; gap: 7px; margin-left: auto; }
+.daily-final-orders-actions button { min-height: 34px; border-radius: 8px; font-size: 12px; font-style: normal; font-weight: 600; box-shadow: none; }
+.daily-final-orders-matrix .report-table-scroll { flex: 1; min-height: 0; max-height: none; scroll-behavior: auto; border-radius: 10px; }
+.daily-final-orders-extras { flex-shrink: 0; }
+.daily-final-orders-extras article > button { padding: 12px 14px; }
+.order-preview .report-table-scroll { scroll-behavior: auto; }
+.order-preview .report-table-scroll:focus-visible { outline: 2px solid #8298b3; outline-offset: 2px; }
+.order-preview .report-table-scroll .glass-table {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.order-preview .glass-table :is(.report-subtotal, .report-grand-total) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+@media (max-width: 700px) {
+  .daily-orders-content { padding: 12px 12px 0; }
+  .daily-final-orders { gap: 10px; }
+  .daily-final-orders-header { align-items: flex-start; gap: 12px; }
+  .daily-final-orders-heading { gap: 10px; }
+  .daily-final-orders-header h2 { font-size: 18px; }
+  .daily-final-orders-date-controls { width: 100%; gap: 8px; }
+  .daily-final-orders-date { flex: 1; }
+  .daily-final-orders-date input { width: 100%; }
+  .daily-final-orders-toolbar { padding: 6px 8px; gap: 8px; }
+  .daily-final-orders-platforms { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
+  .daily-final-orders-platforms button { flex-shrink: 0; white-space: nowrap; }
+  .daily-final-orders-matrix { gap: 8px; }
+}

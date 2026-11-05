@@ -60,11 +60,30 @@ export default function ExcelHeaderFilter({
   const allSelected =
     !selectedValues || selectedValues.length === 0 || selectedValues.length === values.length;
 
+  const allFilteredSelected = search.trim() 
+    ? filteredValues.length > 0 && filteredValues.every((v) => allSelected || selectedValues.includes(v))
+    : allSelected;
+
   const handleSelectAllToggle = () => {
-    if (allSelected) {
-      onFilterChange([]);
+    if (search.trim()) {
+      if (allFilteredSelected) {
+        // Unselect filtered items, keep others
+        if (allSelected) {
+           onFilterChange(values.filter(v => !filteredValues.includes(v)));
+        } else {
+           onFilterChange(selectedValues.filter(v => !filteredValues.includes(v)));
+        }
+      } else {
+        // Select filtered items, keep others
+        const newSet = new Set([...(allSelected ? values : selectedValues), ...filteredValues]);
+        onFilterChange(Array.from(newSet));
+      }
     } else {
-      onFilterChange([...values]);
+      if (allSelected) {
+        onFilterChange([]);
+      } else {
+        onFilterChange([...values]);
+      }
     }
   };
 
@@ -119,9 +138,10 @@ export default function ExcelHeaderFilter({
         className={`flex items-center justify-center p-1 rounded-md transition ${
           isFiltered
             ? "bg-[#0F2137] text-white shadow-xs"
-            : "text-slate-400 hover:text-slate-700 hover:bg-slate-200/70"
+            : "text-slate-800 font-medium hover:text-slate-700 hover:glass/70"
         }`}
         title={`Filter ${label}`}
+        data-filter-active={isFiltered ? "true" : undefined}
       >
         <Filter size={12} />
         <ChevronDown size={10} className="ml-0.5 opacity-70" />
@@ -130,7 +150,7 @@ export default function ExcelHeaderFilter({
       {/* Floating Excel Filter Popover */}
       {isOpen && (
         <div
-          className="absolute top-full mt-1.5 z-50 w-64 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-xl backdrop-blur-xl text-left font-normal normal-case text-xs text-slate-800"
+          className="absolute top-full mt-1.5 z-50 w-64 rounded-xl border border-slate-200/90 glass/95 p-3 shadow-xl backdrop-blur-xl text-left font-normal normal-case text-xs text-slate-800"
           style={{ [align === "right" ? "right" : "left"]: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -143,8 +163,8 @@ export default function ExcelHeaderFilter({
                   onSort(columnKey, true);
                   setIsOpen(false);
                 }}
-                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition ${
-                  isSorted && sortAsc ? "bg-slate-100 text-[#0F2137] font-bold" : ""
+                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 hover:glass transition ${
+                  isSorted && sortAsc ? "glass text-[#0F2137] font-bold" : ""
                 }`}
               >
                 <ArrowUp size={13} />
@@ -156,8 +176,8 @@ export default function ExcelHeaderFilter({
                   onSort(columnKey, false);
                   setIsOpen(false);
                 }}
-                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition ${
-                  isSorted && !sortAsc ? "bg-slate-100 text-[#0F2137] font-bold" : ""
+                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 hover:glass transition ${
+                  isSorted && !sortAsc ? "glass text-[#0F2137] font-bold" : ""
                 }`}
               >
                 <ArrowDown size={13} />
@@ -169,7 +189,7 @@ export default function ExcelHeaderFilter({
           {/* Numeric Quick Filter */}
           {isNumeric && onNumericStockChange && (
             <div className="border-b border-slate-100 pb-2 mb-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Stock Condition</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-800 font-medium mb-1.5">Stock Condition</p>
               <div className="flex flex-col gap-1">
                 {[
                   { id: "all", label: "All Values" },
@@ -183,7 +203,7 @@ export default function ExcelHeaderFilter({
                       onNumericStockChange(opt.id);
                       setIsOpen(false);
                     }}
-                    className={`flex items-center justify-between rounded-lg px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 ${
+                    className={`flex items-center justify-between rounded-lg px-2 py-1.5 text-xs font-medium text-slate-700 hover:glass ${
                       numericStockFilter === opt.id ? "bg-[#0F2137]/10 text-[#0F2137] font-bold" : ""
                     }`}
                   >
@@ -200,19 +220,19 @@ export default function ExcelHeaderFilter({
             <>
               {/* Search box inside filter */}
               <div className="relative mb-2">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-800 font-medium" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={`Search ${label}...`}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2.5 text-xs text-slate-800 outline-none focus:border-[#0F2137] focus:bg-white"
+                  className="w-full rounded-lg border border-slate-200 glass py-1.5 pl-8 pr-2.5 text-xs text-slate-800 outline-none focus:border-[#0F2137] focus:glass"
                 />
               </div>
 
               {/* Items List */}
               <div className="max-h-40 overflow-y-auto space-y-1 pr-1 border-b border-slate-100 pb-2 mb-2">
-                <label className="flex items-center gap-2 px-1.5 py-1 rounded-md hover:bg-slate-50 cursor-pointer font-bold text-slate-800">
+                <label className="flex items-center gap-2 px-1.5 py-1 rounded-md hover:glass cursor-pointer font-bold text-slate-800">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -227,7 +247,7 @@ export default function ExcelHeaderFilter({
                   return (
                     <label
                       key={String(val)}
-                      className="flex items-center gap-2 px-1.5 py-1 rounded-md hover:bg-slate-50 cursor-pointer text-slate-700"
+                      className="flex items-center gap-2 px-1.5 py-1 rounded-md hover:glass cursor-pointer text-slate-700"
                     >
                       <input
                         type="checkbox"
@@ -255,7 +275,7 @@ export default function ExcelHeaderFilter({
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="rounded-lg bg-[#0F2137] px-3 py-1 text-[11px] font-bold text-white shadow-xs hover:bg-slate-800"
+              className="rounded-lg bg-[#0F2137] px-3 py-1 text-[11px] font-bold text-white shadow-xs hover:glass"
             >
               OK
             </button>

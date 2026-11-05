@@ -1,3 +1,7 @@
+import "../dashboard.css";
+import "../stock-inventory.css";
+import "../low-stock.css";
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
@@ -18,7 +22,8 @@ export default function LowStockPage() {
     stock_items: [],
     sticker_items: [],
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("pieces"); // "pieces" | "stickers"
 
@@ -31,6 +36,7 @@ export default function LowStockPage() {
 
   const loadAlerts = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const { data } = await axios.get(`${API_BASE}/stock-alerts`);
       setAlerts({
@@ -40,6 +46,7 @@ export default function LowStockPage() {
       });
     } catch (error) {
       console.error("Failed to load stock alerts", error);
+      setLoadError("Unable to load stock alerts. Please try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -127,98 +134,49 @@ export default function LowStockPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
-      {/* Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/#inventory"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
-            >
-              <ChevronLeft size={16} />
-              Inventory
-            </Link>
-            <div>
-              <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <AlertTriangle size={20} className="text-rose-600" />
-                Low Stock Alerts
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">
-                {alerts.count} items requiring restocking attention across plain pieces and DTF stickers.
-              </p>
+    <div className="stock-inventory-page low-stock-page">
+      <WorkspaceTopBar>
+        <div className="stock-page-heading">
+          <Link to="/#inventory" className="stock-back-link" aria-label="Back to Inventory"><ChevronLeft size={18} /></Link>
+          <span className="stock-page-icon"><AlertTriangle size={20} /></span>
+          <div><h1>Low Stock Alerts</h1><p>Plain pieces &amp; DTF sticker stock alerts</p></div>
+        </div>
+      </WorkspaceTopBar>
+      <main className="stock-page-content">
+        <section className="low-stock-kpis" aria-label="Low stock overview">
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Total alerts</span><span className="dashboard-icon amber"><AlertTriangle size={21} /></span></div>
+            <strong>{loading ? "..." : alerts.count.toLocaleString("en-IN")}</strong><p>Items requiring replenishment</p>
+          </article>
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>Plain pieces</span><span className="dashboard-icon blue"><Package size={21} /></span></div>
+            <strong>{loading ? "..." : alerts.stock_items.length.toLocaleString("en-IN")}</strong><p>Style, color &amp; size combinations</p>
+          </article>
+          <article className="dashboard-stat">
+            <div className="dashboard-card-top"><span>DTF stickers</span><span className="dashboard-icon violet"><Tag size={21} /></span></div>
+            <strong>{loading ? "..." : alerts.sticker_items.length.toLocaleString("en-IN")}</strong><p>Style &amp; color combinations</p>
+          </article>
+        </section>
+        <section className="stock-table-panel" aria-label="Low stock records">
+          <div className="stock-table-toolbar">
+            <div className="stock-table-tabs low-stock-tabs" role="group" aria-label="Low stock category">
+              <button type="button" onClick={() => { setActiveTab("pieces"); clearAllFilters(); }} aria-pressed={activeTab === "pieces"}><Package size={15} />Plain pieces <span>{alerts.stock_items.length}</span></button>
+              <button type="button" onClick={() => { setActiveTab("stickers"); clearAllFilters(); }} aria-pressed={activeTab === "stickers"}><Tag size={15} />DTF stickers <span>{alerts.sticker_items.length}</span></button>
+            </div>
+            <div className="stock-table-controls">
+              <label className="stock-search"><Search size={16} /><input type="search" aria-label="Search low stock" placeholder="Search style, color, size..." value={search} onChange={e => setSearch(e.target.value)} /></label>
+              {hasActiveFilters && <button type="button" className="low-stock-reset" onClick={clearAllFilters}>Reset filters</button>}
+              <button type="button" onClick={loadAlerts} disabled={loading} className="stock-refresh-button" aria-label="Refresh stock alerts" title="Refresh stock alerts"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
             </div>
           </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="mx-auto max-w-[1600px] px-6 py-6 space-y-4">
-        {/* Category Switcher & Search Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-2xl border border-slate-200/80 bg-white/80 p-1 shadow-xs backdrop-blur-md">
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("pieces");
-                clearAllFilters();
-              }}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
-                activeTab === "pieces"
-                  ? "bg-[#0F2137] text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <Package size={15} />
-              Plain Pieces ({alerts.stock_items.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("stickers");
-                clearAllFilters();
-              }}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
-                activeTab === "stickers"
-                  ? "bg-[#0F2137] text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <Tag size={15} />
-              DTF Stickers ({alerts.sticker_items.length})
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3 flex-1 max-w-md">
-            <div className="relative w-full">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search style, color, size..."
-                className="w-full rounded-2xl border border-slate-200/80 bg-white/80 py-2 pl-9 pr-3 text-xs font-medium outline-none shadow-xs text-slate-800 placeholder-slate-400 focus:bg-white"
-              />
-            </div>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="text-xs font-bold text-rose-600 hover:text-rose-800 whitespace-nowrap"
-              >
-                Reset Filters
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Clean Modern Square Table Container */}
-        <section className="bg-white shadow-sm overflow-hidden">
-          <div className="max-h-[calc(100vh-230px)] overflow-auto">
-            <table className="w-full text-left text-sm border-none">
-              <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
+          {loadError && <div className="low-stock-error" role="alert">{loadError}</div>}
+          <div className="low-stock-table-panel">
+            <div className="low-stock-table-caption"><h2>{activeTab === "pieces" ? "Plain pieces" : "DTF stickers"}</h2><span>{filteredAndSortedRows.length} / {currentDataset.length} alert items</span></div>
+            <div className="low-stock-table-scroll" data-lenis-prevent tabIndex={0} aria-label="Scrollable low stock table">
+            <table className="glass-table stock-data-table low-stock-data-table">
+              <thead className="sticky top-0 z-10 glass/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
                 <tr>
-                  <th className="px-4 py-3 min-w-[200px]">
+                  <th>
                     <ExcelHeaderFilter
                       label="Style"
                       columnKey="style"
@@ -232,7 +190,7 @@ export default function LowStockPage() {
                     />
                   </th>
 
-                  <th className="px-4 py-3 min-w-[180px]">
+                  <th>
                     <ExcelHeaderFilter
                       label="Color"
                       columnKey="color"
@@ -247,7 +205,7 @@ export default function LowStockPage() {
                   </th>
 
                   {activeTab === "pieces" && (
-                    <th className="px-4 py-3 min-w-[120px]">
+                    <th>
                       <ExcelHeaderFilter
                         label="Size"
                         columnKey="size"
@@ -262,7 +220,7 @@ export default function LowStockPage() {
                     </th>
                   )}
 
-                  <th className="px-4 py-3 text-right min-w-[140px]">
+                  <th>
                     <ExcelHeaderFilter
                       label="Current Qty"
                       columnKey="qty"
@@ -279,36 +237,36 @@ export default function LowStockPage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={activeTab === "pieces" ? 4 : 3} className="px-4 py-16 text-center text-slate-500 font-medium">
+                    <td colSpan={activeTab === "pieces" ? 4 : 3} className="px-4 py-16 text-center text-slate-800 font-medium font-medium">
                       <RefreshCw className="animate-spin inline mr-2 text-[#0F2137]" size={16} />
                       Loading low stock alerts...
                     </td>
                   </tr>
                 ) : filteredAndSortedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={activeTab === "pieces" ? 4 : 3} className="px-4 py-16 text-center text-slate-500 font-medium">
-                      No low stock alerts matching current filters.
+                    <td colSpan={activeTab === "pieces" ? 4 : 3} className="px-4 py-16 text-center text-slate-800 font-medium font-medium">
+                      {loadError ? "Stock alerts unavailable." : hasActiveFilters ? "No alerts match your filters." : "No low stock alerts in this category."}
                     </td>
                   </tr>
                 ) : (
                   filteredAndSortedRows.map((row, idx) => (
                     <tr
-                      key={`${row.style}-${row.color}-${row.size || idx}`}
-                      className="hover:bg-slate-50/80 transition group"
+                      key={row.id ?? `${row.style}-${row.color}-${row.size || ""}-${idx}`}
+                      className="low-stock-row"
                     >
-                      <td className="px-4 py-3 font-bold text-slate-900">
+                      <td>
                         {row.style}
                       </td>
-                      <td className="px-4 py-3 text-slate-600 font-medium">
+                      <td>
                         {row.color || "-"}
                       </td>
                       {activeTab === "pieces" && (
-                        <td className="px-4 py-3 font-bold text-slate-800 uppercase text-xs">
+                        <td>
                           {row.size || "-"}
                         </td>
                       )}
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        <span className="inline-flex items-center justify-center rounded bg-rose-50 text-rose-700 border border-rose-200/80 px-2.5 py-0.5 text-xs font-black">
+                      <td>
+                        <span className="low-stock-quantity" data-empty={Number(row.qty || 0) <= 0}>
                           {row.qty}
                         </span>
                       </td>
@@ -318,18 +276,19 @@ export default function LowStockPage() {
               </tbody>
 
               {filteredAndSortedRows.length > 0 && (
-                <tfoot className="border-t border-slate-200 bg-slate-50 text-xs font-extrabold text-slate-900">
+                <tfoot className="low-stock-total">
                   <tr>
-                    <td colSpan={activeTab === "pieces" ? 3 : 2} className="px-4 py-3 text-left uppercase tracking-wider text-slate-600">
+                    <td colSpan={activeTab === "pieces" ? 3 : 2} className="low-stock-total-label">
                       Total ({filteredAndSortedRows.length} alert items)
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-sm font-black text-rose-700">
-                      {filteredAndSortedRows.reduce((sum, r) => sum + Number(r.qty || 0), 0).toLocaleString()} Total Units
+                    <td>
+                      {filteredAndSortedRows.reduce((sum, r) => sum + Number(r.qty || 0), 0).toLocaleString()} units
                     </td>
                   </tr>
                 </tfoot>
               )}
             </table>
+            </div>
           </div>
         </section>
       </main>

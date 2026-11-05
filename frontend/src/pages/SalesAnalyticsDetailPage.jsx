@@ -1,24 +1,32 @@
+import WorkspaceTopBar from "../components/WorkspaceTopBar.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import axios from "axios";
-import { ChevronLeft, Download, RefreshCw, Search, Filter, BarChart3, X } from "lucide-react";
+import { ChevronLeft, Download, RefreshCw, Search, Filter, BarChart3, Store, Shirt, Palette, Layers3, Package } from "lucide-react";
 import { API_BASE } from "../api.js";
 import ExcelHeaderFilter from "../components/ExcelHeaderFilter.jsx";
+import "../sales-analytics-detail.css";
 
 const REPORTS = {
   "platform-wise": {
     title: "Platform Wise",
+    icon: Store,
+    description: "Compare product quantities across sales platforms.",
     dataKey: "platform_wise",
     columns: [{ key: "style", label: "Style" }],
     type: "platform",
   },
   "style-wise": {
     title: "Style Wise",
+    icon: Shirt,
+    description: "Review each style by size and total quantity.",
     dataKey: "style_wise",
     columns: [{ key: "style", label: "Style" }],
   },
   "color-wise": {
     title: "Color Wise",
+    icon: Palette,
+    description: "Explore product colors and their size breakdowns.",
     dataKey: "color_wise",
     columns: [
       { key: "main_product_type", label: "Main product Type" },
@@ -27,6 +35,8 @@ const REPORTS = {
   },
   "style-color-wise": {
     title: "Style Wise & Color Wise",
+    icon: Layers3,
+    description: "Compare size quantities for each style and color.",
     dataKey: "style_color_wise",
     columns: [
       { key: "style", label: "Style" },
@@ -35,6 +45,8 @@ const REPORTS = {
   },
   "combo-pack-wise": {
     title: "Combo Pack Wise & Color",
+    icon: Package,
+    description: "Review pack sizes, styles, colors, and garment quantities.",
     dataKey: "combo_pack_wise",
     columns: [
       { key: "pack_of", label: "Pack" },
@@ -44,6 +56,8 @@ const REPORTS = {
   },
   "sales-wise": {
     title: "Sales Wise",
+    icon: BarChart3,
+    description: "Track daily orders, pieces, and invoice amounts by platform.",
     dataKey: "sales_wise",
     type: "sales",
   },
@@ -71,6 +85,7 @@ function downloadBlob(blob, filename) {
 export default function SalesAnalyticsDetailPage() {
   const { reportType = "platform-wise" } = useParams();
   const report = REPORTS[reportType] || REPORTS["platform-wise"];
+  const ReportIcon = report.icon;
 
   const [search, setSearch] = useState("");
   const [data, setData] = useState(null);
@@ -250,83 +265,79 @@ export default function SalesAnalyticsDetailPage() {
   const totalAmount = useMemo(() => filteredRows.reduce((s, r) => s + Number(r.amount || 0), 0), [filteredRows]);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
+    <div className="analytics-detail-page" data-report-type={report.type || "sizes"} data-accent={reportType}>
       {/* Header */}
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
+      <WorkspaceTopBar>
+        <div className="analytics-detail-header-inner">
+          <div className="analytics-detail-heading">
             <Link
               to="/sales-analytics-report"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+              className="detail-back-link"
             >
               <ChevronLeft size={16} />
               Analytics
             </Link>
-            <div>
-              <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <BarChart3 size={20} className="text-[#0F2137]" />
-                {report.title}
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">Detailed performance matrix and breakdown view.</p>
+            <span className="detail-report-icon"><ReportIcon size={22} strokeWidth={1.8} aria-hidden="true" /></span>
+            <div className="detail-heading-copy">
+              <h1>{report.title}</h1>
+              <p>{report.description}</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={downloadReport}
-              disabled={downloading || loading || rows.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#0F2137] to-[#1E3A66] px-4 py-2 text-xs font-bold text-white shadow-sm hover:from-[#1E3A66] hover:to-[#0F2137] disabled:opacity-50 transition"
-            >
-              <Download size={14} />
-              {downloading ? "Exporting..." : "Export Excel"}
-            </button>
-          </div>
         </div>
-      </header>
+      </WorkspaceTopBar>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-[1600px] px-6 py-6 space-y-4">
+      <main className="analytics-detail-main">
         {/* Controls & Filter Bar */}
-        <div className="bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="detail-toolbar">
+          <div className="detail-toolbar-inner">
             {/* View Mode Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-xl border border-slate-200/80 bg-white/80 p-1 shadow-xs">
+            <div className="detail-period-controls">
+              <div className="detail-period-tabs" aria-label="Report period">
                 {["all", "weekly", "monthly", "custom"].map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => setViewMode(mode)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-bold capitalize transition ${
-                      viewMode === mode
-                        ? "bg-[#0F2137] text-white shadow-xs"
-                        : "text-slate-600 hover:bg-slate-100"
-                    }`}
+                    aria-pressed={viewMode === mode}
+                    className={viewMode === mode ? "is-active" : ""}
                   >
                     {mode}
                   </button>
                 ))}
               </div>
 
+              <button
+                type="button"
+                onClick={downloadReport}
+                disabled={downloading || loading || rows.length === 0}
+                className="detail-primary-button detail-export-button"
+              >
+                <Download size={14} />
+                {downloading ? "Exporting..." : "Export Excel"}
+              </button>
+
               {viewMode === "custom" && (
-                <div className="flex items-center gap-2">
+                <div className="detail-custom-dates">
                   <input
                     type="date"
+                    aria-label="From date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
-                    className="rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-xs focus:outline-none"
+                    className="detail-date-input"
                   />
                   <input
                     type="date"
+                    aria-label="To date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
-                    className="rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-xs focus:outline-none"
+                    className="detail-date-input"
                   />
                   <button
                     type="button"
                     onClick={loadReport}
-                    className="inline-flex items-center gap-1 rounded-xl bg-[#0F2137] px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-slate-800 transition"
+                    className="detail-primary-button"
                   >
                     <Filter size={13} />
                     Apply
@@ -336,15 +347,15 @@ export default function SalesAnalyticsDetailPage() {
             </div>
 
             {/* Search Input & Reset */}
-            <div className="flex items-center gap-3 flex-1 max-w-md">
-              <div className="relative w-full">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <div className="detail-search-controls">
+              <div className="detail-search-field">
+                <Search size={16} aria-hidden="true" />
                 <input
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Quick search report values..."
-                  className="w-full rounded-2xl border border-slate-200/80 bg-slate-50 py-2 pl-9 pr-3 text-xs font-medium outline-none shadow-xs text-slate-800 placeholder-slate-400 focus:bg-white"
+                  placeholder="Search report…"
+                  aria-label="Search report"
                 />
               </div>
 
@@ -352,34 +363,33 @@ export default function SalesAnalyticsDetailPage() {
                 <button
                   type="button"
                   onClick={clearAllFilters}
-                  className="text-xs font-bold text-rose-600 hover:text-rose-800 whitespace-nowrap"
+                  className="detail-reset-button"
                 >
                   Reset Filters
                 </button>
               )}
 
-              <span className="text-xs font-bold text-slate-500 whitespace-nowrap">
+              <span className="detail-row-count" aria-live="polite">
                 {filteredRows.length} / {rows.length} rows
               </span>
             </div>
           </div>
         </div>
 
-        {/* Clean Modern Square Table Container */}
-        <section className="bg-white shadow-sm overflow-hidden">
-          <div className="max-h-[calc(100vh-270px)] overflow-auto">
+        <section className="detail-matrix-panel" aria-label={`${report.title} report`} aria-busy={loading}>
+          <div data-lenis-prevent className="detail-matrix-scroll" tabIndex={0} aria-label="Scrollable report matrix">
             {loading ? (
-              <div className="flex items-center justify-center gap-2 p-16 text-slate-500 font-medium text-sm">
+              <div className="flex items-center justify-center gap-2 p-16 text-slate-800 font-medium font-medium text-sm">
                 <RefreshCw className="animate-spin text-[#0F2137]" size={18} />
                 Loading report data...
               </div>
             ) : (
-              <table className="w-full text-sm text-left border-none">
-                <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-md border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
+              <table className="analytics-matrix">
+                <thead>
                   <tr>
                     {report.type === "sales" ? (
                       <>
-                        <th className="px-4 py-3 min-w-[150px]">
+                        <th className="matrix-label-column">
                           <ExcelHeaderFilter
                             label="Date"
                             columnKey="date"
@@ -392,7 +402,7 @@ export default function SalesAnalyticsDetailPage() {
                             align="left"
                           />
                         </th>
-                        <th className="px-4 py-3 min-w-[160px]">
+                        <th className="matrix-label-column">
                           <ExcelHeaderFilter
                             label="Platform"
                             columnKey="platform"
@@ -405,7 +415,7 @@ export default function SalesAnalyticsDetailPage() {
                             align="left"
                           />
                         </th>
-                        <th className="px-4 py-3 text-right min-w-[100px]">
+                        <th className="matrix-number-column">
                           <ExcelHeaderFilter
                             label="Orders"
                             columnKey="orders"
@@ -416,7 +426,7 @@ export default function SalesAnalyticsDetailPage() {
                             isNumeric={true}
                           />
                         </th>
-                        <th className="px-4 py-3 text-right min-w-[100px]">
+                        <th className="matrix-number-column">
                           <ExcelHeaderFilter
                             label="Pieces"
                             columnKey="pieces"
@@ -427,7 +437,7 @@ export default function SalesAnalyticsDetailPage() {
                             isNumeric={true}
                           />
                         </th>
-                        <th className="px-4 py-3 text-right min-w-[130px]">
+                        <th className="matrix-total-column">
                           <ExcelHeaderFilter
                             label="Amount"
                             columnKey="amount"
@@ -442,7 +452,7 @@ export default function SalesAnalyticsDetailPage() {
                     ) : (
                       <>
                         {report.columns.map((column) => (
-                          <th key={column.key} className="px-4 py-3 min-w-[160px]">
+                          <th key={column.key} className={`matrix-label-column matrix-column-${column.key}`}>
                             <ExcelHeaderFilter
                               label={column.label}
                               columnKey={column.key}
@@ -458,16 +468,16 @@ export default function SalesAnalyticsDetailPage() {
                         ))}
                         {report.type === "platform"
                           ? (data?.platforms || []).map((platform) => (
-                              <th key={platform} className="px-4 py-3 text-right font-bold text-slate-600 min-w-[90px]">
+                              <th key={platform} className="matrix-number-column">
                                 {platform}
                               </th>
                             ))
                           : sizes.map((size) => (
-                              <th key={size} className="px-4 py-3 text-right font-bold text-slate-600 min-w-[70px]">
+                              <th key={size} className="matrix-number-column">
                                 {size}
                               </th>
                             ))}
-                        <th className="px-4 py-3 text-right min-w-[100px]">
+                        <th className="matrix-total-column">
                           <ExcelHeaderFilter
                             label="Total"
                             columnKey="total"
@@ -482,24 +492,24 @@ export default function SalesAnalyticsDetailPage() {
                     )}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody>
                   {filteredRows.map((row, index) => (
-                    <tr key={index} className="hover:bg-slate-50/80 transition group">
+                    <tr key={index}>
                       {report.type === "sales" ? (
                         <>
-                          <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-900">
+                          <td className="matrix-label-cell">
                             {row.date}
                           </td>
-                          <td className="px-4 py-3 font-medium text-slate-700">
+                          <td className="matrix-label-cell">
                             {row.platform}
                           </td>
-                          <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                          <td className="matrix-number-cell">
                             {row.orders || 0}
                           </td>
-                          <td className="px-4 py-3 text-right tabular-nums font-bold text-slate-900">
+                          <td className="matrix-number-cell">
                             {row.pieces || 0}
                           </td>
-                          <td className="px-4 py-3 text-right font-bold text-emerald-800 tabular-nums">
+                          <td className="matrix-total-cell">
                             {formatMoney(row.amount)}
                           </td>
                         </>
@@ -508,7 +518,7 @@ export default function SalesAnalyticsDetailPage() {
                           {report.columns.map((column) => (
                             <td
                               key={column.key}
-                              className="whitespace-nowrap px-4 py-3 font-bold text-slate-900"
+                              className="matrix-label-cell"
                             >
                               {row[column.key] || "-"}
                             </td>
@@ -517,17 +527,17 @@ export default function SalesAnalyticsDetailPage() {
                             ? (data?.platforms || []).map((platform) => (
                                 <td
                                   key={platform}
-                                  className="px-4 py-3 text-right tabular-nums text-slate-700"
+                                  className="matrix-number-cell"
                                 >
                                   {row.platforms?.[platform] || "-"}
                                 </td>
                               ))
                             : sizes.map((size) => (
-                                <td key={size} className="px-4 py-3 text-right tabular-nums text-slate-700">
+                                <td key={size} className="matrix-number-cell">
                                   {row.sizes?.[size] || "-"}
                                 </td>
                               ))}
-                          <td className="px-4 py-3 text-right font-black text-slate-900 tabular-nums">
+                          <td className="matrix-total-cell">
                             {row.total || 0}
                           </td>
                         </>
@@ -537,8 +547,8 @@ export default function SalesAnalyticsDetailPage() {
                   {filteredRows.length === 0 && (
                     <tr>
                       <td
-                        colSpan={12}
-                        className="p-16 text-center text-slate-500 font-medium"
+                        colSpan={report.type === "sales" ? 5 : report.columns.length + (report.type === "platform" ? (data?.platforms || []).length : sizes.length) + 1}
+                        className="p-16 text-center text-slate-800 font-medium font-medium"
                       >
                         No records match the active filters or search term.
                       </td>
@@ -547,26 +557,26 @@ export default function SalesAnalyticsDetailPage() {
                 </tbody>
 
                 {filteredRows.length > 0 && (
-                  <tfoot className="border-t border-slate-200 bg-slate-50 text-xs font-extrabold text-slate-900">
+                  <tfoot>
                     <tr>
                       {report.type === "sales" ? (
                         <>
-                          <td colSpan={2} className="px-4 py-3 uppercase tracking-wider text-slate-600">
+                          <td colSpan={2} className="px-4 py-3 uppercase tracking-wider text-slate-800 font-medium">
                             Grand Total ({filteredRows.length} lines)
                           </td>
-                          <td className="px-4 py-3 text-right tabular-nums font-bold text-slate-700">
+                          <td>
                             {totalOrders.toLocaleString()}
                           </td>
-                          <td className="px-4 py-3 text-right tabular-nums font-black text-slate-900">
+                          <td>
                             {totalPieces.toLocaleString()}
                           </td>
-                          <td className="px-4 py-3 text-right font-black text-emerald-800 tabular-nums">
+                          <td>
                             {formatMoney(totalAmount)}
                           </td>
                         </>
                       ) : (
                         <>
-                          <td colSpan={report.columns.length} className="px-4 py-3 uppercase tracking-wider text-slate-600">
+                          <td colSpan={report.columns.length} className="px-4 py-3 uppercase tracking-wider text-slate-800 font-medium">
                             Grand Total ({filteredRows.length} items)
                           </td>
                           {report.type === "platform"
@@ -586,7 +596,7 @@ export default function SalesAnalyticsDetailPage() {
                                   </td>
                                 );
                               })}
-                          <td className="px-4 py-3 text-right tabular-nums text-sm font-black text-emerald-800">
+                          <td>
                             {totalPieces.toLocaleString()}
                           </td>
                         </>

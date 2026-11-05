@@ -1,23 +1,23 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import axios from "axios";
 import { API_BASE } from "../api.js";
-import { TrendingUp, BarChart3, Download, Mail, Send, X, ChevronRight, Paperclip, CheckCircle2 } from "lucide-react";
+import { buildProductTrend, productTrendRange } from "../utils/productTrend.js";
+import SalesAttachmentPreview from "./SalesAttachmentPreview.jsx";
+import { TrendingUp, BarChart3, Download, Mail, Send, X, ChevronRight, Paperclip, CheckCircle2 , Eye, FileText, ShoppingCart, Package, IndianRupee, LayoutGrid } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
-  Bar,
-  BarChart,
+  Line,
+  LineChart,
   CartesianGrid,
-  Cell,
-  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
-const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL"];
+const TREND_COLORS = ["#166534", "#172554", "#f97316", "#ef4444", "#111111"];
 
 const PLATFORMS = [
   { value: "All", label: "All platforms" },
@@ -61,20 +61,14 @@ function dailySummaryRows(data, platform) {
 function StyleLineTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
 
-  const item = payload[0]?.payload || {};
-
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-lg">
-      <p className="font-bold text-slate-900">{label}</p>
-      <p className="mt-1 text-slate-600">
-        Total pieces: <span className="font-semibold">{item.qty || 0}</span>
-      </p>
-      {item.sizeSummary && (
-        <p className="mt-1 max-w-64 text-xs text-slate-500">
-          {item.sizeSummary}
+    <div className="sales-trend-tooltip rounded-lg border border-slate-200 px-3 py-2 text-xs shadow-lg">
+      <p className="font-bold text-slate-900">{payload[0]?.payload?.dateRange || label}</p>
+      {payload.map((item) => (
+        <p key={item.dataKey} className="mt-1" style={{ color: item.color }}>
+          {item.name}: <strong>{Number(item.value).toLocaleString("en-IN")} pieces</strong>
         </p>
-      )}
-      
+      ))}
     </div>
   );
 }
@@ -85,6 +79,8 @@ export default function SalesSection() {
   const [dailyData, setDailyData] = useState(null);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [salesError, setSalesError] = useState("");
+  const salesRequest = useRef(0);
   const [downloading, setDownloading] = useState(false);
   const [viewMode, setViewMode] = useState("monthly");
   const [fromDate, setFromDate] = useState("");
@@ -94,7 +90,14 @@ export default function SalesSection() {
   const [sendingMail, setSendingMail] = useState(false);
 
   const loadSales = async () => {
+    const range = productTrendRange(viewMode, fromDate, toDate);
+    if (!range.start || !range.end || range.start > range.end) {
+      alert("Please select a valid From and To date range.");
+      return;
+    }
+    const requestId = ++salesRequest.current;
     setLoading(true);
+    setSalesError("");
     try {
       const [dailyResponse, analyticsResponse] = await Promise.all([
         axios.get(`${API_BASE}/sales-analytics`, {
@@ -106,20 +109,25 @@ export default function SalesSection() {
         axios.get(`${API_BASE}/sales-pivot-analytics`, {
           params: {
             platform,
-            period: viewMode,
-            from_date: fromDate,
-            to_date: toDate,
+            period: "custom",
+            from_date: range.start,
+            to_date: range.start <= range.today && range.today < range.end ? range.today : range.end,
           },
         }),
       ]);
+      if (requestId !== salesRequest.current) return;
       setDailyData(dailyResponse.data);
-      setAnalyticsData(analyticsResponse.data);
+      setAnalyticsData({ ...analyticsResponse.data,
+        trend: buildProductTrend(analyticsResponse.data.style_daily, viewMode, range),
+      });
     } catch (e) {
+      if (requestId !== salesRequest.current) return;
       console.error(e);
+      setSalesError("Could not load sales data. Please try selecting the period again.");
       setDailyData(null);
       setAnalyticsData(null);
     } finally {
-      setLoading(false);
+      if (requestId === salesRequest.current) setLoading(false);
     }
   };
 
@@ -135,7 +143,7 @@ export default function SalesSection() {
   }, [reportDate, platform, viewMode]);
     const generateExcelBlob = () => {
     const rows = [["Platform", "Total orders", "Total piece quantity", "Total invoice amount"]];
-    summaryRows.forEach(row => {
+    attachmentRows.forEach(row => {
       rows.push([row.platform, row.total_orders, row.total_piece_qty, row.total_invoice_amount]);
     });
     const totOrders = platform === "All" ? dailyData.total_orders : summaryRows.reduce((sum, row) => sum + row.total_orders, 0);
@@ -221,45 +229,19 @@ export default function SalesSection() {
     }
   };
 
-  const styleRows = useMemo(
-    () => (analyticsData?.style_wise || []).slice(0, 10),
-    [analyticsData],
-  );
-
-  const sizeColumns = useMemo(() => {
-    if (!styleRows.length) return [];
-    const set = new Set();
-    for (const row of styleRows) {
-      Object.keys(row.sizes || {}).forEach((size) => set.add(size));
-    }
-    const ordered = SIZE_ORDER.filter((size) => set.has(size));
-    const extra = [...set].filter((size) => !SIZE_ORDER.includes(size)).sort();
-    return [...ordered, ...extra];
-  }, [styleRows]);
-
-  const chartData = styleRows.map((row) => ({
-    name: row.style,
-    qty: row.total,
-    sizeSummary: Object.entries(row.sizes || {})
-      .filter(([, qty]) => Number(qty || 0) > 0)
-      .map(([size, qty]) => `${size}: ${qty}`)
-      .join(" | "),
-  }));
-
-  const BAR_COLORS = [
-    "#0F2137",
-    "#1E3A66",
-    "#2563EB",
-    "#3B82F6",
-    "#102A54",
-    "#1D4ED8",
-    "#334155",
-    "#0284C7",
-  ];
+  const trendProducts = analyticsData?.trend?.products || [];
+  const chartData = analyticsData?.trend?.points || [];
 
   const summaryRows = useMemo(
     () => dailySummaryRows(dailyData, platform),
     [dailyData, platform],
+  );
+
+  const attachmentRows = summaryRows.filter(row =>
+    [row.total_orders, row.total_piece_qty, row.total_invoice_amount].some(value => {
+      const number = Number(value);
+      return Number.isFinite(number) && number !== 0;
+    }),
   );
 
   const hasDailySales =
@@ -267,20 +249,15 @@ export default function SalesSection() {
     (dailyData?.grand_total ?? 0) > 0 ||
     (dailyData?.total_invoice_amount ?? 0) > 0;
 
-  const hasAnalyticsSales =
-    (analyticsData?.totals?.orders ?? 0) > 0 ||
-    (analyticsData?.totals?.pieces ?? 0) > 0 ||
-    (analyticsData?.totals?.amount ?? 0) > 0;
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="sales-workspace">
+      <div className="sales-toolbar flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900">
               <TrendingUp className="text-[#0F2137]" size={24} />
               Sales Performance Overview
             </h2>
-            <p className="text-slate-500 text-xs mt-1">
+            <p className="text-slate-800 font-medium text-xs mt-1">
               Platform totals for selected date with Style Wise & Color Wise dispatches.
             </p>
           </div>
@@ -291,7 +268,7 @@ export default function SalesSection() {
                 setMailData(prev => ({ ...prev, subject: `Sales Performance - ${reportDate}` }));
                 setIsMailPopupOpen(true);
               }}
-              className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-all"
+              id="hidden-send-mail-btn" className="hidden"
             >
               <Mail size={16} /> Send Mail
             </button>
@@ -303,16 +280,16 @@ export default function SalesSection() {
               <ChevronRight size={14} />
             </Link>
           </div>
-                  <div className="flex flex-wrap gap-3 items-end">
+                  <div className="sales-filters flex flex-wrap gap-3 items-end">
             
           <div className="flex items-end gap-2">
-            <label className="flex flex-col gap-1 text-xs font-bold text-slate-600">
+            <label className="flex flex-col gap-1 text-xs font-bold text-slate-800 font-medium">
               Report Date
               <input
                 type="date"
                 value={reportDate}
                 onChange={(e) => setReportDate(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm"
+                className="rounded-xl border border-slate-200 glass px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm"
               />
             </label>
             <button
@@ -320,17 +297,17 @@ export default function SalesSection() {
               onClick={downloadSalesReport}
               disabled={loading || downloading}
               title="Download Style Wise & Color Wise Excel"
-              className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-[#0F2137] disabled:opacity-40 transition shadow-sm"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-slate-200 glass text-slate-700 hover:glass hover:text-[#0F2137] disabled:opacity-40 transition shadow-sm"
             >
               <Download size={18} />
             </button>
           </div>
-          <label className="flex flex-col gap-1 text-xs font-bold text-slate-600">
+          <label className="flex flex-col gap-1 text-xs font-bold text-slate-800 font-medium">
             Platform Filter
             <select
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm min-w-[160px]"
+              className="rounded-xl border border-slate-200 glass px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm min-w-[160px]"
             >
               {PLATFORMS.map((p) => (
                 <option key={p.value} value={p.value}>
@@ -342,79 +319,94 @@ export default function SalesSection() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-slate-500 text-sm py-8 text-center">
+      {loading && !analyticsData ? (
+        <p className="text-slate-800 font-medium text-sm py-8 text-center">
           Loading sales...
         </p>
+      ) : salesError ? (
+        <p role="alert" className="text-sm text-rose-700 py-8 text-center">{salesError}</p>
       ) : (
-        <>
-          <div className="rounded-2xl border border-slate-200/80 bg-white/80 overflow-hidden mb-6 shadow-xs backdrop-blur-md">
-            <div className="border-b border-slate-200/70 bg-slate-50/60 px-4 py-3">
+        <div className="sales-panels" aria-busy={loading}>
+          <div className="sales-platform rounded-2xl border border-slate-200/80 glass overflow-hidden shadow-xs backdrop-blur-md">
+            <div className="border-b border-slate-200/70 glass/60 px-4 py-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                 Platform totals for {reportDate}
               </h3>
             </div>
             {hasDailySales ? (
-              <div className="overflow-auto">
-                <table className="w-full text-sm text-left min-w-[620px]">
-                  <thead className="bg-slate-50/80 text-xs font-bold uppercase text-slate-600 border-b border-slate-200/60">
+              <div data-lenis-prevent className="sales-table-scroll overflow-auto custom-scrollbar" tabIndex={0} aria-label="Platform totals table">
+                <table className="glass-table platform-totals-table w-full text-left">
+                  <thead className="bg-slate-50/50 backdrop-blur-md text-[11px] font-black uppercase tracking-widest text-slate-500 border-b border-slate-200/80">
                     <tr>
-                      <th className="px-4 py-3">Platform</th>
-                      <th className="px-4 py-3 text-right">Total orders</th>
-                      <th className="px-4 py-3 text-right">
-                        Total piece quantity
+                      <th className="px-6 py-4 font-black">
+                        <div className="flex items-center gap-2">
+                          <LayoutGrid size={14} className="text-indigo-500" />
+                          Platform
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-right">
-                        Total invoice amount
+                      <th className="px-6 py-4 font-black">
+                        <div className="flex items-center gap-2">
+                          <ShoppingCart size={14} className="text-blue-500" />
+                          Total Orders
+                        </div>
+                      </th>
+                      <th className="px-6 py-4 font-black">
+                        <div className="flex items-center gap-2">
+                          <Package size={14} className="text-emerald-500" />
+                          Total Pieces
+                        </div>
+                      </th>
+                      <th className="px-6 py-4 font-black">
+                        <div className="flex items-center gap-2">
+                          <IndianRupee size={14} className="text-rose-500" />
+                          Invoice Amount
+                        </div>
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-slate-100/80">
                     {summaryRows.map((row) => (
                       <tr
                         key={row.platform}
-                        className="border-t border-slate-100 hover:bg-slate-50/80"
                       >
-                        <td className="px-4 py-3 font-medium">
-                          {row.platform}
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/60 px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm">
+                            {row.platform}
+                          </span>
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">
+                        <td className="px-6 py-4 text-sm font-semibold text-slate-700">
                           {row.total_orders}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">
+                        <td className="px-6 py-4 text-sm font-semibold text-slate-700">
                           {row.total_piece_qty}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">
-                          {formatMoney(row.total_invoice_amount)}
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center rounded-full bg-emerald-50/80 px-2.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-100/50">
+                            {formatMoney(row.total_invoice_amount)}
+                          </span>
                         </td>
                       </tr>
                     ))}
-                    <tr className="border-t border-slate-300 bg-slate-100 font-bold text-slate-900">
-                      <td className="px-4 py-3">Total</td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                    {/* Totals Row */}
+                    <tr className="bg-slate-50/30 border-t-2 border-slate-200/80">
+                      <td className="px-6 py-5 text-sm font-black text-slate-900 uppercase tracking-widest">
+                        Grand Total
+                      </td>
+                      <td className="px-6 py-5 text-base font-black text-indigo-600">
                         {platform === "All"
                           ? dailyData.total_orders
-                          : summaryRows.reduce(
-                              (sum, row) => sum + row.total_orders,
-                              0,
-                            )}
+                          : summaryRows.reduce((sum, row) => sum + row.total_orders, 0)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-6 py-5 text-base font-black text-blue-600">
                         {platform === "All"
                           ? dailyData.grand_total
-                          : summaryRows.reduce(
-                              (sum, row) => sum + row.total_piece_qty,
-                              0,
-                            )}
+                          : summaryRows.reduce((sum, row) => sum + row.total_piece_qty, 0)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-6 py-5 text-base font-black text-emerald-600">
                         {formatMoney(
                           platform === "All"
                             ? dailyData.total_invoice_amount
-                            : summaryRows.reduce(
-                                (sum, row) => sum + row.total_invoice_amount,
-                                0,
-                              ),
+                            : summaryRows.reduce((sum, row) => sum + row.total_invoice_amount, 0)
                         )}
                       </td>
                     </tr>
@@ -422,42 +414,36 @@ export default function SalesSection() {
                 </table>
               </div>
             ) : (
-              <p className="text-slate-500 text-sm py-8 text-center">
+              <p className="text-slate-800 font-medium text-sm py-8 text-center">
                 No sales data for this date. Generate a final report first.
               </p>
             )}
           </div>
 
-          {!hasAnalyticsSales ? (
-            <p className="text-slate-500 text-sm py-8 text-center">
-              No Style Wise & Color Wise analytics data found.
-            </p>
-          ) : (
-            <>
-              {chartData.length > 0 && (
-                <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 mb-6 shadow-xs backdrop-blur-md">
+                <div className="sales-chart rounded-2xl border border-slate-200/80 glass p-5 shadow-xs backdrop-blur-md">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
                       <BarChart3 size={16} className="text-[#0F2137]" />
-                      Style Trend -{" "}
+                      Top 5 product trends ·{" "}
                       {platform === "All" ? "All Platforms" : platform}
                     </h3>
 
                     <div className="flex items-center gap-3">
-                      <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                      <div className="inline-flex rounded-xl border border-slate-200 glass p-1 shadow-sm">
                         {[
                           ["weekly", "Weekly"],
                           ["monthly", "Monthly"],
                           ["custom", "Custom Date"],
                         ].map(([value, label]) => (
                           <button
+                            key={value}
                             type="button"
                             disabled={viewMode === value}
                             onClick={() => setViewMode(value)}
                             className={`rounded-lg px-4 py-2 text-xs font-bold transition ${
                               viewMode === value
                                 ? "bg-[#0F2137] text-white shadow-sm cursor-default"
-                                : "text-slate-600 hover:bg-slate-100"
+                                : "text-slate-800 font-medium hover:glass"
                             }`}
                           >
                             {label}
@@ -470,7 +456,7 @@ export default function SalesSection() {
                   {viewMode === "custom" && (
                     <div className="mb-4 flex flex-wrap items-end gap-3">
                       <div>
-                        <label className="mb-1 block text-xs font-bold text-slate-600">
+                        <label className="mb-1 block text-xs font-bold text-slate-800 font-medium">
                           From
                         </label>
                         <input
@@ -482,7 +468,7 @@ export default function SalesSection() {
                       </div>
 
                       <div>
-                        <label className="mb-1 block text-xs font-bold text-slate-600">
+                        <label className="mb-1 block text-xs font-bold text-slate-800 font-medium">
                           To
                         </label>
                         <input
@@ -503,227 +489,214 @@ export default function SalesSection() {
 
                           loadSales();
                         }}
-                        className="rounded-xl bg-[#0F2137] px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                        className="rounded-xl bg-[#0F2137] px-4 py-2 text-xs font-bold text-white hover:glass"
                       >
                         Apply
                       </button>
                     </div>
                   )}
 
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={chartData}
-                        margin={{
-                          top: 25,
-                          right: 20,
-                          left: 0,
-                          bottom: 10,
-                        }}
-                        barCategoryGap="25%"
-                      >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fontSize: 11 }}
-                          interval={0}
-                          angle={-20}
-                          textAnchor="end"
-                          height={70}
-                        />
-
-                        <YAxis tick={{ fontSize: 11 }} />
-
-                        <Tooltip content={<StyleLineTooltip />} />
-
-                        <Bar dataKey="qty" barSize={34}>
-                          {chartData.map((entry, index) => (
-                            <Cell
-                              key={index}
-                              fill={BAR_COLORS[index % BAR_COLORS.length]}
-                            />
-                          ))}
-
-                          <LabelList
-                            dataKey="qty"
-                            position="top"
-                            fontSize={11}
-                            fontWeight="bold"
-                          />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-2xl border border-slate-200/80 bg-white/80 overflow-hidden shadow-xs backdrop-blur-md">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 px-4 py-3 border-b border-slate-200/70 bg-slate-50/60">
-                  Top 10 products by style
-                </h3>
-                <div className="overflow-auto max-h-80">
-                  <table className="w-full text-sm text-left min-w-max">
-                    <thead className="bg-slate-50/80 text-xs font-bold uppercase text-slate-600 border-b border-slate-200/60">
-                      <tr>
-                        <th className="px-3 py-2">#</th>
-                        <th className="px-3 py-2">Style</th>
-                        <th className="px-3 py-2 text-right">Total</th>
-                        {sizeColumns.map((size) => (
-                          <th key={size} className="px-3 py-2 text-right">
-                            {size}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {styleRows.map((row, index) => (
-                        <tr
-                          key={row.style}
-                          className="border-t border-slate-100 hover:bg-slate-50/80"
-                        >
-                          <td className="px-3 py-2 text-slate-500">
-                            {index + 1}
-                          </td>
-                          <td
-                            className="px-3 py-2 font-medium max-w-[200px] truncate"
-                            title={row.style}
-                          >
-                            {row.style}
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                            {row.total}
-                          </td>
-                          {sizeColumns.map((size) => (
-                            <td
-                              key={size}
-                              className="px-3 py-2 text-right tabular-nums text-slate-600"
-                            >
-                              {row.sizes?.[size] ? row.sizes[size] : "-"}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-        </>
-      )}
-      {isMailPopupOpen && createPortal(
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md">
-          <div className="w-full max-w-[480px] rounded-3xl bg-white shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] overflow-hidden animate-in fade-in zoom-in-95 duration-200 relative">
-            
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-5 bg-gradient-to-br from-slate-50 to-white border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 shadow-inner">
-                  <Mail size={20} />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Compose Mail</h3>
-                  <p className="text-xs font-medium text-slate-500">Send the generated sales overview</p>
-                </div>
-              </div>
-              <button onClick={() => setIsMailPopupOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSendMail} className="p-6 space-y-5">
-              
-              <div className="space-y-4 relative">
-                {/* Connecting Line for visual flow */}
-                <div className="absolute left-[15px] top-8 bottom-12 w-0.5 bg-slate-100 rounded-full z-0"></div>
-
-                <div className="relative z-10 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 text-[10px] font-bold uppercase tracking-wider shadow-sm border border-white">From</div>
-                  <input
-                    type="email"
-                    value={JSON.parse(localStorage.getItem("admin_auth_data") || "{}").email || JSON.parse(localStorage.getItem("admin_session") || "{}").email || ""}
-                    readOnly
-                    className="flex-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 px-4 text-sm font-medium text-slate-500 cursor-not-allowed shadow-sm"
-                  />
-                </div>
-
-                <div className="relative z-10 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-[10px] font-bold uppercase tracking-wider shadow-sm border border-white">To</div>
-                  <input
-                    type="email"
-                    required
-                    value={mailData.to}
-                    onChange={(e) => setMailData({ ...mailData, to: e.target.value })}
-                    placeholder="Recipient email address"
-                    className="flex-1 w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm placeholder:font-medium placeholder:text-slate-400"
-                  />
-                </div>
-                
-                <div className="relative z-10 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 text-[10px] font-bold uppercase tracking-wider shadow-sm border border-white">CC</div>
-                  <input
-                    type="text"
-                    value={mailData.cc}
-                    onChange={(e) => setMailData({ ...mailData, cc: e.target.value })}
-                    placeholder="Optional, comma separated"
-                    className="flex-1 w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm placeholder:font-medium placeholder:text-slate-400"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2">
-                <label className="block text-xs font-bold text-slate-600 mb-2">Subject</label>
-                <input
-                  type="text"
-                  required
-                  value={mailData.subject}
-                  onChange={(e) => setMailData({ ...mailData, subject: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm font-semibold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none shadow-sm"
-                />
-              </div>
-
-              {/* Attachment card */}
-              <div className="mt-4 p-3.5 rounded-2xl border border-emerald-100 bg-emerald-50/50 flex items-center justify-between group hover:border-emerald-200 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
-                    <Paperclip size={18} />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700/80 mb-0.5">Attachment Ready</p>
-                    <p className="text-sm font-bold text-emerald-900">Sales_Overview_{reportDate}.xlsx</p>
-                  </div>
-                </div>
-                <CheckCircle2 size={20} className="text-emerald-500 opacity-50 group-hover:opacity-100 transition-opacity" />
-              </div>
-
-              {/* Actions */}
-              <div className="pt-6 mt-2 border-t border-slate-100 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsMailPopupOpen(false)}
-                  className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={sendingMail}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none hover:-translate-y-0.5 active:translate-y-0"
-                >
-                  {sendingMail ? "Sending..." : (
+                  {trendProducts.length === 0 ? (
+                    <p className="sales-empty text-sm text-slate-600 py-8 text-center">No product sales in this period.</p>
+                  ) : (
                     <>
-                      <Send size={16} /> Send Email
+                      <div className="sales-trend-legend" aria-label="Product legend">
+                        {trendProducts.map((product, index) => (
+                          <span key={product.key} title={product.name}>
+                            <svg width="22" height="10" aria-hidden="true"><line x1="0" y1="5" x2="22" y2="5" stroke={TREND_COLORS[index]} strokeWidth="2.5" /></svg>
+                            <span>{product.name}</span>
+                          </span>
+                        ))}
+                      </div>
+                      <div data-lenis-prevent className="sales-chart-scroll" tabIndex={0} aria-label="Top five product sales over time">
+                        <div className="sales-trend-canvas" style={{ minWidth: viewMode === "custom" ? Math.max(300, chartData.length * 38) : 300 }}>
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
+                            <LineChart data={chartData} accessibilityLayer margin={{ top: 12, right: 18, left: 0, bottom: 4 }}>
+                              <CartesianGrid stroke="#dce5ef" strokeDasharray="3 5" vertical={false} />
+                              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#72839a" }} axisLine={false} tickLine={false} />
+                              <YAxis allowDecimals={false} width={40} tick={{ fontSize: 10, fill: "#72839a" }} axisLine={false} tickLine={false} />
+                              <Tooltip content={<StyleLineTooltip />} isAnimationActive={false} wrapperStyle={{ pointerEvents: "none" }} />
+                              {trendProducts.map((product, index) => (
+                                <Line key={product.key} type="linear" dataKey={product.key} name={product.name}
+                                  stroke={TREND_COLORS[index]} strokeWidth={2.5}
+                                  dot={{ r: 3, strokeWidth: 1.5, fill: "#fff" }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={false} />
+                              ))}
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
                     </>
                   )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
+                </div>
+        </div>
       )}
+      {isMailPopupOpen && createPortal(
+  <div className="fixed inset-0 z-[99999] flex items-end sm:items-center justify-center sm:p-6 glass/50 backdrop-blur-lg">
+    <div className="w-full max-w-[1160px] rounded-t-[2rem] sm:rounded-[2rem] glass shadow-[0_-30px_80px_-10px_rgba(0,0,0,0.25),0_0_0_1px_rgba(0,0,0,0.04)] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 sm:animate-in sm:fade-in sm:zoom-in-95 duration-300 relative" style={{maxHeight: "92vh"}}>
+
+      {/* Gradient accent bar */}
+      <div className="h-1 w-full bg-gradient-to-r from-[#2e4d70] via-[#203b5a] to-[#172f4b] flex-shrink-0" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-8 sm:px-12 py-5 border-b border-slate-100 flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#2e4d70] to-[#172f4b] flex items-center justify-center text-white shadow-lg shadow-[#172f4b]/25">
+              <Mail size={20} strokeWidth={2.5} />
+            </div>
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#203b5a] border-2 border-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-slate-900 tracking-tight leading-none">New Message</h3>
+            <p className="text-xs font-medium text-slate-800 font-medium mt-0.5">Sales overview · Excel attached</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-[#203b5a] bg-[#edf2f7] border border-[#203b5a]/15 px-3 py-1.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#203b5a] animate-pulse inline-block" />
+            Attachment ready
+          </span>
+          <button type="button" onClick={() => setIsMailPopupOpen(false)} className="ml-2 w-9 h-9 flex items-center justify-center rounded-xl bg-[#203b5a] text-white font-medium hover:bg-[#172f4b] transition-all cursor-pointer">
+            <X size={17} strokeWidth={2.5} />
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 overflow-hidden flex-col md:flex-row min-h-0">
+
+        {/* ─── LEFT: Compose Form ─── */}
+        <div className="w-full md:w-[44%] flex flex-col border-r border-slate-100 glass min-h-0">
+          <form id="send-mail-form" onSubmit={handleSendMail} className="flex-1 overflow-y-auto px-8 sm:px-12 py-8 space-y-0 custom-scrollbar">
+
+            {/* Field: From */}
+            <div className="flex items-center gap-5 py-4 border-b border-slate-100 group focus-within:border-[#203b5a] transition-colors">
+              <span className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-800 font-medium w-9 flex-shrink-0 group-focus-within:text-[#203b5a] transition-colors select-none">From</span>
+              <input
+                type="email"
+                value={JSON.parse(localStorage.getItem("admin_auth_data") || "{}").email || JSON.parse(localStorage.getItem("admin_session") || "{}").email || ""}
+                readOnly
+                className="flex-1 bg-transparent text-sm font-medium text-slate-800 font-medium outline-none cursor-not-allowed"
+              />
+            </div>
+
+            {/* Field: To */}
+            <div className="flex items-center gap-5 py-4 border-b border-slate-100 group focus-within:border-[#203b5a] transition-colors">
+              <span className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-800 font-medium w-9 flex-shrink-0 group-focus-within:text-[#203b5a] transition-colors select-none">To</span>
+              <input
+                type="email"
+                required
+                value={mailData.to}
+                onChange={(e) => setMailData({ ...mailData, to: e.target.value })}
+                placeholder="recipient@company.com"
+                className="mail-compose-field flex-1 bg-transparent text-sm font-semibold text-slate-900 outline-none"
+              />
+            </div>
+
+            {/* Field: CC */}
+            <div className="flex items-center gap-5 py-4 border-b border-slate-100 group focus-within:border-[#203b5a] transition-colors">
+              <span className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-800 font-medium w-9 flex-shrink-0 group-focus-within:text-[#203b5a] transition-colors select-none">CC</span>
+              <input
+                type="text"
+                value={mailData.cc}
+                onChange={(e) => setMailData({ ...mailData, cc: e.target.value })}
+                placeholder="team@company.com (optional)"
+                className="mail-compose-field flex-1 bg-transparent text-sm font-semibold text-slate-900 outline-none"
+              />
+            </div>
+
+            {/* Field: Subject */}
+            <div className="flex items-start gap-5 py-5 border-b border-slate-100 group focus-within:border-[#203b5a] transition-colors">
+              <span className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-800 font-medium w-9 flex-shrink-0 mt-1 group-focus-within:text-[#203b5a] transition-colors select-none">Subj</span>
+              <input
+                type="text"
+                required
+                value={mailData.subject}
+                onChange={(e) => setMailData({ ...mailData, subject: e.target.value })}
+                placeholder="Email subject…"
+                className="mail-compose-field flex-1 bg-transparent text-base font-semibold text-slate-900 outline-none leading-snug"
+              />
+            </div>
+
+            {/* Attachment */}
+            <div className="pt-6">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-800 font-medium mb-3">Attachments</p>
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-white border border-slate-200/80 shadow-sm">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#2e4d70] to-[#172f4b] flex items-center justify-center text-white shadow-md shadow-[#172f4b]/20 flex-shrink-0">
+                  <FileText size={20} strokeWidth={2} />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <p className="text-sm font-bold text-slate-800 truncate">Sales_Overview_{reportDate}.xlsx</p>
+                  <p className="text-xs font-medium text-slate-800 font-medium mt-0.5">{attachmentRows.length} platform{attachmentRows.length === 1 ? "" : "s"} · Microsoft Excel</p>
+                </div>
+                <CheckCircle2 size={18} className="text-[#203b5a] flex-shrink-0" strokeWidth={2.5} />
+              </div>
+            </div>
+
+          </form>
+
+          {/* CTA Footer */}
+          <div className="px-8 sm:px-12 py-6 border-t border-slate-100 flex items-center justify-between gap-3 glass/60 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsMailPopupOpen(false)}
+              className="px-5 py-3 rounded-xl bg-[#203b5a] text-sm font-bold text-white hover:bg-[#172f4b] border border-[#203b5a] transition-all"
+            >
+              Discard
+            </button>
+            <button
+              form="send-mail-form"
+              type="submit"
+              disabled={sendingMail}
+              className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-xl bg-gradient-to-r from-[#2e4d70] to-[#172f4b] text-sm font-bold text-white shadow-lg shadow-[#172f4b]/25 hover:from-[#365b82] hover:to-[#203b5a] hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:shadow-none disabled:translate-y-0"
+            >
+              {sendingMail ? (
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-slate-200 border-t-white rounded-full animate-spin" /> Sending…</span>
+              ) : (
+                <><Send size={16} strokeWidth={2.5} /> Send Mail</>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* ─── RIGHT: Live Preview ─── */}
+        <div className="mail-attachment-preview w-full md:w-[56%] bg-[#f8f9fc] flex flex-col min-h-0">
+
+          {/* Preview header */}
+          <div className="flex items-center justify-between px-8 py-5 border-b border-slate-100 glass flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <Eye size={16} className="text-slate-800 font-medium" strokeWidth={2.5} />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-800 font-medium">Attachment Preview</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-800 font-medium glass px-2.5 py-1 rounded-lg">{attachmentRows.length} platform{attachmentRows.length === 1 ? "" : "s"}</span>
+            </div>
+          </div>
+
+          {/* Platform cards */}
+          <div data-lenis-prevent className="flex-1 overflow-auto custom-scrollbar min-h-0">
+            {attachmentRows.length > 0 ? (
+              <SalesAttachmentPreview rows={attachmentRows} totals={{
+                orders: platform === "All" ? dailyData?.total_orders : summaryRows.reduce((sum, row) => sum + Number(row.total_orders || 0), 0),
+                pieces: platform === "All" ? dailyData?.grand_total : summaryRows.reduce((sum, row) => sum + Number(row.total_piece_qty || 0), 0),
+                amount: platform === "All" ? dailyData?.total_invoice_amount : summaryRows.reduce((sum, row) => sum + Number(row.total_invoice_amount || 0), 0),
+              }} />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <div className="w-12 h-12 rounded-2xl glass flex items-center justify-center text-slate-800 font-medium mb-3">
+                  <FileText size={22} />
+                </div>
+                <p className="text-sm font-semibold text-slate-800 font-medium">No data for {reportDate}</p>
+                <p className="text-xs text-slate-800 font-medium mt-1">Load sales data to preview attachment</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>,
+  document.body
+)}
     </div>
   );
 }
